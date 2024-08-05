@@ -37,3 +37,31 @@ class TensorFlowModelHandler(OliveModelHandler):
         rank: Optional[int] = None,
     ):
         raise NotImplementedError
+
+
+@model_handler_registry("TFLiteModel")
+class TFLiteModelHandler(OliveModelHandler):
+    def __init__(
+        self,
+        model_path: OLIVE_RESOURCE_ANNOTATIONS = None,
+        model_file_format: ModelFileFormat = ModelFileFormat.TENSORFLOW_TFLITE,
+        model_attributes: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(
+            model_path=model_path,
+            framework=Framework.TENSORFLOW,
+            model_file_format=model_file_format,
+            model_attributes=model_attributes,
+        )
+
+    def load_model(self, rank: int = None):
+        raise NotImplementedError
+
+    def prepare_session(
+        self,
+        inference_settings: Optional[Dict[str, Any]] = None,
+        device: Device = Device.CPU,
+        execution_providers: Union[str, List[str]] = None,
+        rank: Optional[int] = None,
+    ):
+        raise NotImplementedError
