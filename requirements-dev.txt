@@ -7,3 +7,4 @@ lintrunner
 lintrunner-adapters
 pylint
 ruff>=0.2.0
+truststore

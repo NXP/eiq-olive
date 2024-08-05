@@ -196,6 +196,12 @@
             "extra_dependencies": [
                 "nvmo"
             ]
+        },
+        "TFLiteConversion": {
+            "module_path": "olive.passes.tflite.conversion.TFLiteConversion",
+            "extra_dependencies": [
+                "onnx2tflite"
+            ]
         }
     },
     "extra_dependencies": {
@@ -254,6 +260,9 @@
         "nvmo": [
             "nvidia-modelopt~=0.11.0",
             "onnx-graphsurgeon"
+        ],
+        "onnx2tflite": [
+            "onnx2tflite"
         ]
     }
 }

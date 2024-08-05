@@ -27,6 +27,7 @@ class ModelFileFormat(str, Enum):
     PYTORCH_SLICE_GPT_MODEL = "PyTorch.SliceGPT"
     TENSORFLOW_PROTOBUF = "TensorFlow.Protobuf"
     TENSORFLOW_SAVED_MODEL = "TensorFlow.SavedModel"
+    TENSORFLOW_TFLITE = "TensorFlow.TFLite"
     SNPE_DLC = "SNPE.DLC"
     QNN_CPP = "QNN.CPP"
     QNN_LIB = "QNN.LIB"
