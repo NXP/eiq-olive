@@ -4,10 +4,10 @@
 # License: LA_OPT_NXP_Software_License
 # See the LICENSE_LA_OPT_NXP_Software_License for more details.
 #
+import logging
 from pathlib import Path
 from typing import Any, Dict
 
-from olive import logging
 from olive.hardware import AcceleratorSpec
 from olive.model import ONNXModelHandler
 from olive.model.handler.tensorflow import TFLiteModelHandler
