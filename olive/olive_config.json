@@ -198,7 +198,7 @@
             ]
         },
         "TFLiteConversion": {
-            "module_path": "olive.passes.tflite.conversion.TFLiteConversion",
+            "module_path": "olive.passes.tensorflow.conversion.TFLiteConversion",
             "extra_dependencies": [
                 "onnx2tflite"
             ]
