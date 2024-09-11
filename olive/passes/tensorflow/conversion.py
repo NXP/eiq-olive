@@ -106,17 +106,16 @@ class TFLiteConversion(Pass):
         return cls._default_config_params
 
     def _log_conversion_logs(self):
-        def _get_logging_fun(importance):
-            if importance == MessageImportance.DEBUG:
-                return logger.debug
-            elif importance == MessageImportance.INFO:
-                return logger.info
-            elif importance == MessageImportance.WARNING:
-                return logger.warning
-            else:
-                return logger.error
+        def _get_logging_fn(importance):
+            severity_map = {
+                MessageImportance.DEBUG: logger.debug,
+                MessageImportance.INFO: logger.info,
+                MessageImportance.WARNING: logger.warning
+            }
+            return severity_map.get(importance, logger.error)
 
         def _parse_log(log_category, log: dict):
+            # Log dictionary data:
             # data = {
             #     "message": message,
             #     "logging_context_hierarchy": list(self._current_logging_context),
@@ -127,7 +126,7 @@ class TFLiteConversion(Pass):
 
         for log_category, logs in conversion_log.get_logs().items():
             for log in logs:
-                fn = _get_logging_fun(MessageImportance(log["importance"]))
+                fn = _get_logging_fn(MessageImportance(log["importance"]))
                 fn(_parse_log(log_category, log))
 
     def _run_for_config(
