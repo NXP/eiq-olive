@@ -45,7 +45,7 @@ def test_tflite_conversion_pass__define_all_params(tmp_path):
         "skip_shape_inference": False,
         "qdq_aware_conversion": True,
         "symbolic_dimension_into_static": ["batch:1"],
-        "set_input_shape": ["input:(1,2,3)"],
+        "set_input_shape": ["input:(1,1)"],
         "dont_skip_nodes_with_known_outputs": True,
         "allow_select_ops": True,
     }
