@@ -144,12 +144,12 @@ class TFLiteConversion(Pass):
 
         try:
             if "symbolic_dimension_into_static" in config:
-                config["symbolic_dimension_into_static"] = convert.parse_symbolic_dimensions_mapping(
+                config["symbolic_dimensions_mapping"] = convert.parse_symbolic_dimensions_mapping(
                     config["symbolic_dimension_into_static"]
                 )
 
             if "set_input_shape" in config:
-                config["set_input_shape"] = convert.parse_input_shape_mapping(config["set_input_shape"])
+                config["input_shapes_mapping"] = convert.parse_input_shape_mapping(config["set_input_shape"])
 
             binary_tflite_model = convert.convert_model(model.model_path, ConversionConfig(config))
         finally:
