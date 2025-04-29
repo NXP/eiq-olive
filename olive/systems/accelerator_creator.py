@@ -176,6 +176,11 @@ class AcceleratorNormalizer:
                     eps.append(ep)
 
             # remove the unsupported execution providers
+            if not self.skip_supported_eps_check and not eps:
+                raise ValueError(
+                    f"None of the execution providers {accelerator.execution_providers} cannot be found in the target"
+                    " system but at least one is required to run the workflow."
+                )
             accelerator.execution_providers = eps or ["CPUExecutionProvider"]
 
         if ep_not_supported:
@@ -210,9 +215,9 @@ def create_accelerators(
                         "Ignore the CPUExecutionProvider for non-cpu device since cpu accelerator is also present."
                     )
                 else:
-                    accelerator_specs.append(AcceleratorSpec(device, ep))
+                    accelerator_specs.append(AcceleratorSpec(device, ep, memory=accelerator.memory))
         else:
-            accelerator_specs.append(AcceleratorSpec(device))
+            accelerator_specs.append(AcceleratorSpec(device, memory=accelerator.memory))
 
     assert accelerator_specs, (
         "No valid accelerator specified for target system. "

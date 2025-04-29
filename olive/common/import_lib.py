@@ -2,13 +2,15 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+import functools
 import importlib.util
 import sys
 from pathlib import Path
 from typing import Optional, Union
 
 
-def import_module_from_file(module_path: Union[Path, str], module_name: str = None):
+@functools.lru_cache
+def import_module_from_file(module_path: Union[Path, str], module_name: Optional[str] = None):
     module_path = Path(module_path).resolve()
     if not module_path.exists():
         raise ValueError(f"{module_path} doesn't exist")
@@ -28,6 +30,7 @@ def import_module_from_file(module_path: Union[Path, str], module_name: str = No
     return new_module
 
 
+@functools.lru_cache
 def import_user_module(user_script: Union[Path, str], script_dir: Optional[Union[Path, str]] = None):
     if script_dir is not None:
         script_dir = Path(script_dir).resolve()

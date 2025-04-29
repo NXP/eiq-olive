@@ -15,7 +15,7 @@ This workflow fine-tunes [phi2 model](https://huggingface.co/microsoft/phi-2) us
 
 You need to install required packages according to qlora. Also we suggest to use gpu devices for fine-tune process.
 ```bash
-pip install -r requirements-qlora.txt
+pip install -r requirements-lora.txt
 ```
 
 Then, you can run the fine-tune using the following command:
@@ -88,7 +88,7 @@ If you only want cpu or cuda model, you can modify the config file by remove the
 ]
 ```
 
-or you can use `ph2.py` to generate optimized models separately by running the following commands:
+or you can use `phi2.py` to generate optimized models separately by running the following commands:
 ```bash
 python phi2.py --model_type cpu_int4 --genai_optimization
 python phi2.py --model_type cuda_int4 --genai_optimization
@@ -111,11 +111,13 @@ tokens = tokenizer.encode(prompt)
 
 params = og.GeneratorParams(model)
 params.set_search_options(max_length=200)
-params.input_ids = tokens
+generator = og.Generator(model, params)
+generator.append_tokens(tokens)
 
-output_tokens = model.generate(params)
+while not generator.is_done():
+    generator.generate_next_token()
 
-text = tokenizer.decode(output_tokens)
+text = tokenizer.decode(generator.get_sequence(0))
 
 print("Output:")
 print(text)

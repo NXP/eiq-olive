@@ -4,6 +4,7 @@
 # --------------------------------------------------------------------------
 import json
 import platform
+import re
 import shutil
 import sys
 import venv
@@ -51,7 +52,7 @@ class TestIsolatedORTSystemConfig:
 
     def test_invalid_isolated_system_config(self):
         config = {"type": "IsolatedORT", "config": {"python_environment_path": "invalid_path"}}
-        with pytest.raises(ValueError, match=f"Python path {Path('invalid_path').resolve()} does not exist"):
+        with pytest.raises(ValueError, match=re.escape(f"Python path {Path('invalid_path').resolve()} does not exist")):
             SystemConfig.parse_obj(config)
 
 
@@ -69,7 +70,7 @@ class TestIsolatedORTSystem:
 
     def test_unsupported_pass_run(self):
         with pytest.raises(NotImplementedError):
-            self.system.run_pass(None, None, None, None)
+            self.system.run_pass(None, None, None)
 
     @patch("olive.systems.isolated_ort.isolated_ort_system.IsolatedORTEvaluator.evaluate")
     def test_evaluate_model(self, mock_evaluate):
@@ -77,16 +78,15 @@ class TestIsolatedORTSystem:
         olive_model_config.type = "ONNXModel"
         olive_model = olive_model_config.create_model()
         olive_model.framework = Framework.ONNX
+        evaluator_config = MagicMock()
+        evaluator_config.metrics = MagicMock()
 
-        metric = MagicMock()
-
-        self.system.evaluate_model(olive_model_config, None, [metric], DEFAULT_CPU_ACCELERATOR)
+        self.system.evaluate_model(olive_model_config, evaluator_config, DEFAULT_CPU_ACCELERATOR)
 
         # assert
         mock_evaluate.assert_called_once_with(
             olive_model,
-            None,
-            [metric],
+            evaluator_config.metrics,
             device=DEFAULT_CPU_ACCELERATOR.accelerator_type,
             execution_providers=DEFAULT_CPU_ACCELERATOR.execution_provider,
         )
@@ -96,7 +96,7 @@ class TestIsolatedORTSystem:
         olive_model_config.type = "PyTorchModel"
 
         with pytest.raises(ValueError) as errinfo:  # noqa: PT011
-            self.system.evaluate_model(olive_model_config, None, None, None)
+            self.system.evaluate_model(olive_model_config, None, None)
 
         assert "IsolatedORTSystem only supports evaluation for ONNXModel" in str(errinfo.value)
 
@@ -116,7 +116,7 @@ class TestIsolatedORTEvaluator:
 
         python_path = shutil.which("python", path=python_environment_path)
         # install only onnxruntime
-        run_subprocess([python_path, "-m", "pip", "install", "onnxruntime"], env=self.system.environ)
+        run_subprocess([python_path, "-m", "pip", "install", "onnxruntime", "numpy<2"], env=self.system.environ)
 
         self.evaluator = IsolatedORTEvaluator(self.system.environ)
         self.onnx_evaluator = OnnxEvaluator()
@@ -125,9 +125,9 @@ class TestIsolatedORTEvaluator:
 
     def test__inference(self):
         model = get_onnx_model_config().create_model()
-        metric = get_accuracy_metric(AccuracySubType.ACCURACY_SCORE, random_dataloader=False)
+        metric = get_accuracy_metric(AccuracySubType.ACCURACY_SCORE)
         metric = OliveEvaluator.generate_metric_user_config_with_model_io(metric, model)
-        dataloader, _, post_func = OliveEvaluator.get_user_config(model.framework, None, metric)
+        dataloader, _, post_func = OliveEvaluator.get_user_config(model.framework, metric)
 
         actual_model_output, actual_target = self.evaluator._inference(
             model,
@@ -155,11 +155,10 @@ class TestIsolatedORTEvaluator:
         model = get_onnx_model_config().create_model()
         metric = get_latency_metric(LatencySubType.AVG)
         metric = OliveEvaluator.generate_metric_user_config_with_model_io(metric, model)
-        dataloader, _, _ = OliveEvaluator.get_user_config(model.framework, None, metric)
+        dataloader, _, _ = OliveEvaluator.get_user_config(model.framework, metric)
 
         res = self.evaluator._evaluate_raw_latency(
             model,
-            None,
             metric,
             dataloader,
             post_func=None,
@@ -248,7 +247,9 @@ class TestIsolatedORTEvaluator:
         )
         if mode == "inference":
             assert mock_wrapper.run.call_count == num_batches
-            assert mock_wrapper.run.mock_calls == [mock.call({"input": np.array([i])}) for i in range(num_batches)]
+            assert mock_wrapper.run.mock_calls == [
+                mock.call(None, {"input": np.array([i])}) for i in range(num_batches)
+            ]
             for i in range(num_batches):
                 batch_output_path = output_dir / f"output_{i}.npy"
                 assert batch_output_path.exists()

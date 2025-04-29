@@ -3,11 +3,11 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 import logging
-from enum import Enum
-from typing import List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
-from olive.common.config_utils import ConfigBase, validate_config
+from olive.common.config_utils import ConfigBase, NestedConfig, validate_config
 from olive.common.pydantic_v1 import validator
+from olive.common.utils import StrEnumBase
 from olive.data.config import DataConfig
 from olive.evaluator.accuracy import AccuracyBase
 from olive.evaluator.metric_config import LatencyMetricConfig, MetricGoal, ThroughputMetricConfig, get_user_config_class
@@ -15,7 +15,7 @@ from olive.evaluator.metric_config import LatencyMetricConfig, MetricGoal, Throu
 logger = logging.getLogger(__name__)
 
 
-class MetricType(str, Enum):
+class MetricType(StrEnumBase):
     # TODO(trajep): support throughput
     ACCURACY = "accuracy"
     LATENCY = "latency"
@@ -23,7 +23,7 @@ class MetricType(str, Enum):
     CUSTOM = "custom"
 
 
-class AccuracySubType(str, Enum):
+class AccuracySubType(StrEnumBase):
     ACCURACY_SCORE = "accuracy_score"
     F1_SCORE = "f1_score"
     PRECISION = "precision"
@@ -32,7 +32,7 @@ class AccuracySubType(str, Enum):
     PERPLEXITY = "perplexity"
 
 
-class LatencySubType(str, Enum):
+class LatencySubType(StrEnumBase):
     # unit: millisecond
     AVG = "avg"
     MAX = "max"
@@ -45,7 +45,7 @@ class LatencySubType(str, Enum):
     P999 = "p999"
 
 
-class ThroughputSubType(str, Enum):
+class ThroughputSubType(StrEnumBase):
     # unit: token per second, tps
     AVG = "avg"
     MAX = "max"
@@ -92,7 +92,9 @@ class SubMetric(ConfigBase):
         return v
 
 
-class Metric(ConfigBase):
+class Metric(NestedConfig):
+    _nested_field_name = "user_config"
+
     name: str
     type: MetricType
     backend: Optional[str] = "torch_metrics"
@@ -107,6 +109,9 @@ class Metric(ConfigBase):
             return self.user_config.inference_settings.get(framework)
         else:
             return None
+
+    def get_run_kwargs(self) -> Dict[str, Any]:
+        return self.user_config.run_kwargs if (self.user_config and self.user_config.run_kwargs) else {}
 
     def get_sub_type_info(self, info_name, no_priority_filter=True, callback=lambda x: x):
         sub_type_info = {}

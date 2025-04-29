@@ -5,13 +5,12 @@
 import logging
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Dict, List, Type, Union
 
 from olive.hardware.accelerator import AcceleratorSpec
-from olive.model import CompositeModelHandler, ONNXModelHandler, PyTorchModelHandler
-from olive.model.config.hf_config import HfConfig
+from olive.model import CompositeModelHandler, HfModelHandler, ONNXModelHandler
 from olive.passes import Pass
-from olive.passes.pass_config import PassConfigParam
+from olive.passes.pass_config import BasePassConfig, PassConfigParam, get_user_script_data_config
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +18,10 @@ logger = logging.getLogger(__name__)
 class OptimumConversion(Pass):
     """Convert a Hugging Face PyTorch model to ONNX model using the Optimum export function."""
 
-    _requires_user_script = True
-
     @classmethod
     def _default_config(cls, accelerator_spec: AcceleratorSpec) -> Dict[str, PassConfigParam]:
         return {
+            **get_user_script_data_config(),
             "target_opset": PassConfigParam(
                 type_=int, default_value=14, description="The version of the default (ai.onnx) opset to target."
             ),
@@ -50,36 +48,38 @@ class OptimumConversion(Pass):
             ),
         }
 
-    def validate_search_point(
-        self, search_point: Dict[str, Any], accelerator_spec: AcceleratorSpec, with_fixed_value: bool = False
+    @classmethod
+    def validate_config(
+        cls,
+        config: Type[BasePassConfig],
+        accelerator_spec: AcceleratorSpec,
     ) -> bool:
-        if with_fixed_value:
-            search_point = self.config_at_search_point(search_point or {})
+        if not super().validate_config(config, accelerator_spec):
+            return False
 
-        if search_point.get("fp16") and search_point.get("device") != "cuda":
+        if config.fp16 and config.device != "cuda":
             logger.info("OptimumConversion: fp16 is set to True, but device is not set to cuda.")
             return False
 
         return True
 
     def _run_for_config(
-        self, model: PyTorchModelHandler, data_root: str, config: Dict[str, Any], output_model_path: str
+        self, model: HfModelHandler, config: Type[BasePassConfig], output_model_path: str
     ) -> Union[ONNXModelHandler, CompositeModelHandler]:
         from optimum import version as optimum_version
         from optimum.exporters.onnx import main_export as export_optimum_model
         from packaging import version
 
-        extra_args = deepcopy(config["extra_args"]) or {}
+        extra_args = deepcopy(config.extra_args) or {}
         extra_args.update(
             {
-                "opset": config["target_opset"],
-                "fp16": config["fp16"],
-                "device": config["device"],
+                "opset": config.target_opset,
+                "fp16": config.fp16,
+                "device": config.device,
             }
         )
-        hf_config = model.hf_config or HfConfig()
-        if hf_config.from_pretrained_args and "trust_remote_code" not in extra_args:
-            extra_args["trust_remote_code"] = hf_config.from_pretrained_args.trust_remote_code
+        if model.load_kwargs and "trust_remote_code" not in extra_args:
+            extra_args["trust_remote_code"] = model.load_kwargs.trust_remote_code
 
         if version.parse(optimum_version.__version__) < version.parse("1.14.0"):
             logger.warning(
@@ -96,15 +96,15 @@ class OptimumConversion(Pass):
 
         # export directly to the output path
         # TODO(anyone): consider using a temporary directory to export the model and then save the relevant components
-        export_optimum_model(model.model_path or hf_config.model_name, output_model_path, **extra_args)
+        export_optimum_model(model.model_name_or_path, output_model_path, **extra_args)
 
         # check the exported components
         exported_models = [name.stem for name in Path(output_model_path).iterdir() if name.suffix == ".onnx"]
-        if config["components"]:
+        if config.components:
             assert all(
-                component in exported_models for component in config["components"]
+                component in exported_models for component in config.components
             ), f"Components {config['components']} are not exported. Only {exported_models} are exported."
-        components = config["components"] or exported_models
+        components = config.components or exported_models
         logger.debug("Exported models are: %s. Returning components: %s.", exported_models, components)
 
         # if there is only one component, return it directly

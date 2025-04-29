@@ -2,14 +2,16 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import onnx
 from kv_cache_utils import DynamicCache, DynamicIOBoundCache, GQASharedCache, StaticCache, StaticIOBoundCache
-from onnxruntime import InferenceSession, OrtValue, SessionOptions
+from onnxruntime import InferenceSession, OrtValue, SessionOptions, set_default_logger_severity
+from tqdm import tqdm
 from transformers import PreTrainedTokenizer
+
+from olive.common.utils import StrEnumBase, load_weights
 
 if TYPE_CHECKING:
     from kv_cache_utils import Cache, IOBoundCache
@@ -17,11 +19,15 @@ if TYPE_CHECKING:
     from onnx import ValueInfoProto
 
 
-class AdapterMode(Enum):
+class AdapterMode(StrEnumBase):
     """Enum for adapter modes."""
 
     inputs = "inputs"
     initializers = "initializers"
+
+
+# ort logs warnings about default initializers
+set_default_logger_severity(3)
 
 
 class ORTGenerator:
@@ -120,6 +126,11 @@ class ORTGenerator:
         """Whether the model has position ids."""
         return "position_ids" in self.input_info
 
+    @property
+    def use_past_seq_len(self) -> bool:
+        """Whether the model has past sequence length."""
+        return "past_seq_len" in self.input_info
+
     @staticmethod
     def prepare_sessions(
         model_path: str,
@@ -162,7 +173,7 @@ class ORTGenerator:
                     "template": info.get("template"),
                 }
                 if info.get("weights") is not None:
-                    np_weights = dict(np.load(info["weights"])) if isinstance(info["weights"], str) else info["weights"]
+                    np_weights = load_weights(info["weights"]) if isinstance(info["weights"], str) else info["weights"]
                     # TODO(jambayk): provide an option to lazy load the ortvalues if needed
                     # for example, there is not enough memory to load all adapters at once
                     if execution_provider != "QNNExecutionProvider":
@@ -179,7 +190,7 @@ class ORTGenerator:
                 initializer_names = []
                 initializer_values = []
                 if info.get("weights") is not None:
-                    np_weights = dict(np.load(info["weights"])) if isinstance(info["weights"], str) else info["weights"]
+                    np_weights = load_weights(info["weights"]) if isinstance(info["weights"], str) else info["weights"]
                     for i_name, value in np_weights.items():
                         initializer_names.append(i_name)
                         initializer_values.append(OrtValue.ortvalue_from_numpy(value))
@@ -197,7 +208,7 @@ class ORTGenerator:
         return sessions, adapters
 
     def get_adapter(
-        self, name: str = None, use_io_binding: bool = False
+        self, name: Optional[str] = None, use_io_binding: bool = False
     ) -> Tuple[InferenceSession, str, Dict[str, Any]]:
         """Get the session, template and inputs for the specified adapter.
 
@@ -220,8 +231,8 @@ class ORTGenerator:
 
     def generate(
         self,
-        prompt: Union[str, List[str]],
-        adapter: str = None,
+        prompt: Union[Union[str, Tuple[str]], List[Union[str, Tuple[str]]]],
+        adapter: Optional[str] = None,
         max_gen_len: int = 128,
         use_io_binding: bool = False,
         cache_type: str = "dynamic",
@@ -230,7 +241,7 @@ class ORTGenerator:
     ) -> Union[str, List[str]]:
         """Generate text from the model given a prompt.
 
-        :param prompt: The prompt to generate text from. Can be a string or a list of strings.
+        :param prompt: The prompt to generate text from. Can be a string/string-tuples or a list.
         :param adapter: The adapter to use for generation. If None, the default adapter is used.
         :param max_gen_len: The maximum length of the generated text.
         :param use_io_binding: Whether to use IO binding for the generation.
@@ -259,7 +270,7 @@ class ORTGenerator:
 
         # buffers to keep numpy copy of model inputs, don't want to keep going back and forth between OrtValue and numpy
         np_buffers = {
-            "attention_mask": (inputs["attention_mask"].numpy() if use_io_binding else inputs["attention_mask"].copy())
+            "attention_mask": inputs["attention_mask"].numpy() if use_io_binding else inputs["attention_mask"].copy()
         }
         if self.use_position_ids:
             np_buffers["position_ids"] = (
@@ -269,13 +280,14 @@ class ORTGenerator:
                 .astype(self.input_info["position_ids"]["dtype"])
             )
 
-        for idx in range(max_gen_len):
+        for idx in tqdm(range(max_gen_len)):
+            used_inputs = {k: v for k, v in inputs.items() if k in self.input_info}
             if use_io_binding:
                 if idx < 2:
                     # need to bind logits twice, once for prompt processing and once for token generation
                     # shapes: (batch_size, prompt_length, vocab_size) and (batch_size, 1, vocab_size)
                     io_binding.bind_output("logits", self.device, self.device_id)
-                for k, v in inputs.items():
+                for k, v in used_inputs.items():
                     io_binding.bind_ortvalue_input(k, v)
                 cache.bind_kv_io(io_binding)
 
@@ -286,7 +298,7 @@ class ORTGenerator:
                 outputs = io_binding.get_outputs()
                 logits = outputs[0].numpy()
             else:
-                outputs = session.run(None, {**inputs, **cache.get_kv_inputs()})
+                outputs = session.run(None, {**{used_inputs}, **cache.get_kv_inputs()})
                 logits = outputs[0]
 
             # Decide the next token using your preferred sampling strategy.
@@ -372,6 +384,16 @@ class ORTGenerator:
                 # GQA, or static during token generation
                 inputs["attention_mask"].update_inplace(np_buffers["attention_mask"])
 
+            if self.use_past_seq_len:
+                past_seq_len = (np_buffers["attention_mask"].sum(-1, keepdims=True) - 1).astype(np.int32)
+                total_seq_len = np.array(np_buffers["attention_mask"].shape[1], dtype=np.int32)
+                if use_io_binding:
+                    inputs["past_seq_len"].update_inplace(past_seq_len)
+                    inputs["total_seq_len"].update_inplace(total_seq_len)
+                else:
+                    inputs["past_seq_len"] = past_seq_len
+                    inputs["total_seq_len"] = total_seq_len
+
             # update cache
             cache.update(outputs[1:])
         if use_io_binding:
@@ -379,14 +401,14 @@ class ORTGenerator:
             io_binding.clear_binding_outputs()
 
         decoded_text = self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
-        if isinstance(prompt, str):
+        if isinstance(prompt, (str, tuple)):
             return decoded_text[0]
         return decoded_text
 
     def get_initial_inputs(
         self,
-        prompt: Union[str, List[str]],
-        template: str,
+        prompt: Union[Union[str, Tuple[str]], List[Union[str, Tuple[str]]]],
+        template: Optional[str],
         use_io_binding: bool,
         cache_type: str,
         max_cache_len: int,
@@ -401,15 +423,21 @@ class ORTGenerator:
 
         if template is not None:
             prompt = (
-                template.format(prompt=prompt)
-                if isinstance(prompt, str)
-                else [template.format(prompt=p) for p in prompt]
+                apply_template(template, prompt)
+                if isinstance(prompt, (str, tuple))
+                else [apply_template(template, p) for p in prompt]
             )
+        else:
+            assert isinstance(prompt, str) or (
+                isinstance(prompt, list) and all(isinstance(p, str) for p in prompt)
+            ), "tuple prompts require a template"
 
         encodings_dict = self.tokenizer(prompt, return_tensors="np", padding=True)
         input_ids = encodings_dict["input_ids"].astype(self.input_info["input_ids"]["dtype"])
         batch_size, prompt_length = input_ids.shape
-        attention_mask = encodings_dict["attention_mask"].astype(self.input_info["attention_mask"]["dtype"])
+        attention_mask = encodings_dict["attention_mask"]
+        if "attention_mask" in self.input_info:
+            attention_mask = attention_mask.astype(self.input_info["attention_mask"]["dtype"])
 
         cache = self.get_fresh_cache(batch_size, use_io_binding, cache_type, max_cache_len, cache_backend)
         if isinstance(cache, GQASharedCache):
@@ -422,6 +450,9 @@ class ORTGenerator:
             position_ids = np.arange(prompt_length, dtype=np.int64).reshape((1, prompt_length))
             position_ids = np.broadcast_to(position_ids, (batch_size, prompt_length))
             inputs["position_ids"] = position_ids.astype(self.input_info["position_ids"]["dtype"])
+        if self.use_past_seq_len:
+            inputs["past_seq_len"] = (attention_mask.sum(-1, keepdims=True) - 1).astype(np.int32)
+            inputs["total_seq_len"] = np.array(attention_mask.shape[1], dtype=np.int32)
         if use_io_binding:
             inputs = {k: OrtValue.ortvalue_from_numpy(v, self.device, self.device_id) for k, v in inputs.items()}
         return inputs, cache
@@ -467,3 +498,11 @@ class ORTGenerator:
             kwargs["max_cache_len"] = max_cache_len
 
         return cache_class(**kwargs, **self.cache_info)
+
+
+def apply_template(template: str, p: Union[str, Tuple[str]]) -> str:
+    if isinstance(p, tuple):
+        kwargs = {f"prompt_{i}": p[i] for i in range(len(p))}
+    else:
+        kwargs = {"prompt": p}
+    return template.format(**kwargs)

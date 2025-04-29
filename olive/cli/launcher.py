@@ -6,10 +6,19 @@ import sys
 from argparse import ArgumentParser
 from warnings import warn
 
+from olive.cli.auto_opt import AutoOptCommand
+from olive.cli.capture_onnx import CaptureOnnxGraphCommand
 from olive.cli.configure_qualcomm_sdk import ConfigureQualcommSDKCommand
-from olive.cli.export_adapters import ExportAdaptersCommand
+from olive.cli.convert_adapters import ConvertAdaptersCommand
+from olive.cli.extract_adapters import ExtractAdaptersCommand
+from olive.cli.finetune import FineTuneCommand
+from olive.cli.generate_adapter import GenerateAdapterCommand
+from olive.cli.generate_cost_model import GenerateCostModelCommand
 from olive.cli.manage_aml_compute import ManageAMLComputeCommand
+from olive.cli.quantize import QuantizeCommand
 from olive.cli.run import WorkflowRunCommand
+from olive.cli.session_params_tuning import SessionParamsTuningCommand
+from olive.cli.shared_cache import SharedCacheCommand
 
 
 def get_cli_parser(called_as_console_script: bool = True) -> ArgumentParser:
@@ -22,10 +31,21 @@ def get_cli_parser(called_as_console_script: bool = True) -> ArgumentParser:
     commands_parser = parser.add_subparsers()
 
     # Register commands
+    # TODO(jambayk): Consider adding a common tempdir option to all commands
+    # NOTE: The order of the commands is to organize the documentation better.
     WorkflowRunCommand.register_subcommand(commands_parser)
+    AutoOptCommand.register_subcommand(commands_parser)
+    CaptureOnnxGraphCommand.register_subcommand(commands_parser)
+    FineTuneCommand.register_subcommand(commands_parser)
+    GenerateAdapterCommand.register_subcommand(commands_parser)
+    ConvertAdaptersCommand.register_subcommand(commands_parser)
+    QuantizeCommand.register_subcommand(commands_parser)
+    SessionParamsTuningCommand.register_subcommand(commands_parser)
+    GenerateCostModelCommand.register_subcommand(commands_parser)
     ConfigureQualcommSDKCommand.register_subcommand(commands_parser)
     ManageAMLComputeCommand.register_subcommand(commands_parser)
-    ExportAdaptersCommand.register_subcommand(commands_parser)
+    SharedCacheCommand.register_subcommand(commands_parser)
+    ExtractAdaptersCommand.register_subcommand(commands_parser)
 
     return parser
 
@@ -33,14 +53,14 @@ def get_cli_parser(called_as_console_script: bool = True) -> ArgumentParser:
 def main(raw_args=None, called_as_console_script: bool = True):
     parser = get_cli_parser(called_as_console_script)
 
-    args = parser.parse_args(raw_args)
+    args, unknown_args = parser.parse_known_args(raw_args)
 
     if not hasattr(args, "func"):
         parser.print_help()
         sys.exit(1)
 
     # Run the command
-    service = args.func(args)
+    service = args.func(parser, args, unknown_args)
     service.run()
 
 

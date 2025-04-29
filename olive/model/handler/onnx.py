@@ -6,11 +6,11 @@ import logging
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union
 
-import numpy as np
 import onnx
 from onnx import GraphProto, ModelProto
 
 from olive.common.ort_inference import OrtSessionFallbackError, get_ort_inference_session
+from olive.common.utils import load_weights
 from olive.constants import Framework, ModelFileFormat
 from olive.exception import OliveEvaluationError
 from olive.hardware.accelerator import AcceleratorLookup, Device
@@ -39,6 +39,7 @@ class ONNXModelHandler(OliveModelHandler, OnnxEpValidateMixin, OnnxGraphMixin): 
         "use_ort_extensions",
         "external_initializers_file_name",
         "constant_inputs_file_name",
+        "generative",
     )
 
     def __init__(
@@ -50,12 +51,14 @@ class ONNXModelHandler(OliveModelHandler, OnnxEpValidateMixin, OnnxGraphMixin): 
         model_attributes: Optional[Dict[str, Any]] = None,
         external_initializers_file_name: Optional[str] = None,
         constant_inputs_file_name: Optional[str] = None,
+        generative: bool = False,
     ):
         super().__init__(
             framework=Framework.ONNX,
             model_file_format=ModelFileFormat.ONNX,
             model_path=model_path,
             model_attributes=model_attributes,
+            generative=generative,
         )
         self.inference_settings = inference_settings
         self.use_ort_extensions = use_ort_extensions
@@ -88,7 +91,22 @@ class ONNXModelHandler(OliveModelHandler, OnnxEpValidateMixin, OnnxGraphMixin): 
         model_path = super().model_path
         return get_additional_file_path(model_path, self.constant_inputs_file_name) if model_path else None
 
-    def load_model(self, rank: int = None) -> ModelProto:
+    def change_model_path_to_dir(self) -> Path:
+        """Change the model path to the parent directory of the model file.
+
+        This is used when we want to store more files in the same directory as the model file.
+        :return: The parent directory of the model file.
+        """
+        model_path_resource = Path(self.get_resource("model_path"))
+        if model_path_resource.is_dir():
+            return model_path_resource
+
+        self.set_resource("model_path", model_path_resource.parent)
+        self.onnx_file_name = model_path_resource.name
+
+        return model_path_resource.parent
+
+    def load_model(self, rank: int = None, cache_model: bool = True) -> ModelProto:
         return onnx.load(self.model_path)
 
     def prepare_session(
@@ -107,7 +125,9 @@ class ONNXModelHandler(OliveModelHandler, OnnxEpValidateMixin, OnnxGraphMixin): 
         # device id for ranked model
         device_id = rank if device == Device.GPU else None
         # load external initializers if available
-        external_initializers = np.load(self.external_initializers_path) if self.external_initializers_path else None
+        external_initializers = (
+            load_weights(self.external_initializers_path) if self.external_initializers_path else None
+        )
 
         try:
             return get_ort_inference_session(
@@ -115,6 +135,15 @@ class ONNXModelHandler(OliveModelHandler, OnnxEpValidateMixin, OnnxGraphMixin): 
             )
         except OrtSessionFallbackError as e:
             raise OliveEvaluationError(e) from e
+
+    def run_session(
+        self,
+        session: Any = None,
+        inputs: Union[Dict[str, Any], List[Any], Tuple[Any, ...]] = None,
+        **kwargs: Dict[str, Any],
+    ) -> Any:
+        output_names = kwargs.pop("output_names", None)
+        return session.run(output_names, inputs, **kwargs)
 
     def merge_inference_settings(
         self, inference_settings: Optional[Dict[str, Any]] = None, execution_providers: List[str] = None
@@ -188,12 +217,14 @@ class DistributedOnnxModelHandler(OliveModelHandler, OnnxEpValidateMixin):
         inference_settings: Optional[dict] = None,
         use_ort_extensions: bool = False,
         model_attributes: Optional[Dict[str, Any]] = None,
+        generative: bool = False,
     ):
         super().__init__(
             framework=Framework.ONNX,
             model_file_format=ModelFileFormat.ONNX,
             model_path=model_path,
             model_attributes=model_attributes,
+            generative=generative,
         )
         self.inference_settings = inference_settings
         self.use_ort_extensions = use_ort_extensions
@@ -207,7 +238,7 @@ class DistributedOnnxModelHandler(OliveModelHandler, OnnxEpValidateMixin):
     def ranked_model_path(self, rank: int) -> Union[Path, str]:
         return Path(self.model_path) / self.ranked_model_name(rank)
 
-    def load_model(self, rank: int = None) -> ONNXModelHandler:
+    def load_model(self, rank: int = None, cache_model: bool = True) -> ONNXModelHandler:
         return ONNXModelHandler(
             self.ranked_model_path(rank),
             inference_settings=self.inference_settings,
@@ -222,6 +253,14 @@ class DistributedOnnxModelHandler(OliveModelHandler, OnnxEpValidateMixin):
         execution_providers: Union[str, List[str]] = None,
         rank: Optional[int] = 0,
     ):
+        raise RuntimeError("DistributedOnnxModel doesn't have a session of its own")
+
+    def run_session(
+        self,
+        session: Any = None,
+        inputs: Union[Dict[str, Any], List[Any], Tuple[Any, ...]] = None,
+        **kwargs: Dict[str, Any],
+    ) -> Any:
         raise RuntimeError("DistributedOnnxModel doesn't have a session of its own")
 
     def get_default_execution_providers_with_model(self, filepath: str, device: Device):

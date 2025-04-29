@@ -12,19 +12,32 @@ import onnxruntime as ort
 from diffusers import OnnxRuntimeModel, OnnxStableDiffusionPipeline
 from onnxruntime import __version__ as OrtVersion
 from packaging import version
+from sd_utils import config as sd_config
 
 from olive.model import ONNXModelHandler
 
 # ruff: noqa: TID252, T201
 
 
-def update_cuda_config(config: Dict):
+def update_dml_config(config_dml: Dict):
+    used_passes = {"convert", "optimize"}
+    for pass_name in set(config_dml["passes"].keys()):
+        if pass_name not in used_passes:
+            config_dml["passes"].pop(pass_name, None)
+    config_dml["systems"]["local_system"]["accelerators"][0]["execution_providers"] = ["DmlExecutionProvider"]
+    return config_dml
+
+
+def update_cuda_config(config_cuda: Dict):
     if version.parse(OrtVersion) < version.parse("1.17.0"):
         # disable skip_group_norm fusion since there is a shape inference bug which leads to invalid models
-        config["passes"]["optimize_cuda"]["config"]["optimization_options"] = {"enable_skip_group_norm": False}
-    config["pass_flows"] = [["convert", "optimize_cuda"]]
-    config["systems"]["local_system"]["config"]["accelerators"][0]["execution_providers"] = ["CUDAExecutionProvider"]
-    return config
+        config_cuda["passes"]["optimize_cuda"]["optimization_options"] = {"enable_skip_group_norm": False}
+    used_passes = {"convert", "optimize_cuda"}
+    for pass_name in set(config_cuda["passes"].keys()):
+        if pass_name not in used_passes:
+            config_cuda["passes"].pop(pass_name, None)
+    config_cuda["systems"]["local_system"]["accelerators"][0]["execution_providers"] = ["CUDAExecutionProvider"]
+    return config_cuda
 
 
 def validate_args(args, provider):
@@ -53,9 +66,7 @@ def validate_ort_version(provider: str):
 
 
 def save_optimized_onnx_submodel(submodel_name, provider, model_info):
-    footprints_file_path = (
-        Path(__file__).resolve().parents[1] / "footprints" / f"{submodel_name}_gpu-{provider}_footprints.json"
-    )
+    footprints_file_path = Path(__file__).resolve().parents[1] / "footprints" / submodel_name / "footprints.json"
     with footprints_file_path.open("r") as footprint_file:
         footprints = json.load(footprint_file)
 
@@ -135,6 +146,8 @@ def get_ort_pipeline(model_dir, common_args, ort_args, guidance_scale):
     batch_size = common_args.batch_size
     image_size = common_args.image_size
     provider = common_args.provider
+    vae_sample_size = sd_config.vae_sample_size
+    unet_sample_size = sd_config.unet_sample_size
 
     if static_dims:
         hidden_batch_size = batch_size if (guidance_scale == 0.0) else batch_size * 2
@@ -148,6 +161,16 @@ def get_ort_pipeline(model_dir, common_args, ort_args, guidance_scale):
         sess_options.add_free_dimension_override_by_name("unet_time_batch", 1)
         sess_options.add_free_dimension_override_by_name("unet_hidden_batch", hidden_batch_size)
         sess_options.add_free_dimension_override_by_name("unet_hidden_sequence", 77)
+
+        sess_options.add_free_dimension_override_by_name("decoder_batch", batch_size)
+        sess_options.add_free_dimension_override_by_name("decoder_channels", 4)
+        sess_options.add_free_dimension_override_by_name("decoder_height", unet_sample_size)
+        sess_options.add_free_dimension_override_by_name("decoder_width", unet_sample_size)
+
+        sess_options.add_free_dimension_override_by_name("encoder_batch", batch_size)
+        sess_options.add_free_dimension_override_by_name("encoder_channels", 3)
+        sess_options.add_free_dimension_override_by_name("encoder_height", vae_sample_size)
+        sess_options.add_free_dimension_override_by_name("encoder_width", vae_sample_size)
 
     provider_map = {
         "dml": "DmlExecutionProvider",

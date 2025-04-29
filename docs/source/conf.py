@@ -5,8 +5,6 @@
 import os
 import sys
 
-import sphinx_rtd_theme
-
 # ruff: noqa
 # pylint: skip-file
 sys.path.append(os.path.abspath("exts"))
@@ -19,9 +17,8 @@ sys.path.append(os.path.abspath("exts"))
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "Olive"
-copyright = "2023, olivedevteam@microsoft.com"
-author = "olivedevteam@microsoft.com"
-version = "0.6.2"
+copyright = "2023-2025, Olive Dev team"
+version = "0.8.0"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -38,16 +35,20 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.githubpages",
     "sphinx.ext.napoleon",
+    "sphinx_copybutton",
     "sphinx_tabs.tabs",
-    # "nbsphinx",
+    "sphinx_design",
+    "sphinxcontrib.mermaid",
     "auto_config_doc",
     "sphinxarg.ext",
     "sphinxcontrib.autodoc_pydantic",
     "sphinxcontrib.jquery",
+    "gallery_directive",
 ]
 
 myst_enable_extensions = [
     "html_image",
+    "colon_fence",
 ]
 
 source_suffix = {
@@ -63,16 +64,46 @@ suppress_warnings = ["myst.xref_missing"]
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
-html_theme = "sphinx_rtd_theme"
-html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
+html_theme = "pydata_sphinx_theme"
 
 html_static_path = ["_static"]
 html_css_files = [
-    "css/width.css",
+    # better contrast between h3 and h4, high priority so that it overrides the theme
+    ("css/header.css", {"priority": 1000}),
 ]
 html_js_files = [
     "js/custom_version.js",
 ]
+
+html_theme_options = {
+    "header_links_before_dropdown": 4,
+    "icon_links": [
+        {
+            "name": "GitHub",
+            "url": "https://github.com/microsoft/Olive",
+            "icon": "fa-brands fa-github",
+        },
+        {
+            "name": "PyPI",
+            "url": "https://pypi.org/project/olive-ai",
+            "icon": "fa-custom fa-pypi",
+        },
+    ],
+    "show_toc_level": 1,
+    "navbar_align": "left",
+    # "announcement": "Announcement: This is an example announcement.",
+    "show_version_warning_banner": True,
+    "navbar_center": ["navbar-nav"],
+    "navbar_start": ["navbar-logo"],
+    "footer_start": ["copyright"],
+    "secondary_sidebar_items": {
+        "**": ["page-toc"],
+    },
+}
+
+html_sidebars = {
+    "**": [],
+}
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = "sphinx"
@@ -97,4 +128,7 @@ linkcheck_ignore = [
     r"https://docs.qualcomm.com/*",
     # TODO(jambayk): remove this when the issue is fixed
     r"https://www.intel.com/*",
+    # TODO(team): html files are generated after doc build. Linkcheck doesn't work for them.
+    # Remove this when linkcheck works for html files.
+    r"^(?!https).*\.html$",
 ]

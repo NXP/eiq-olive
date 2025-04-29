@@ -8,8 +8,8 @@ import logging
 import os
 import sys
 
-from olive.common.utils import huggingface_login
-from olive.evaluator.olive_evaluator import OliveEvaluator, OliveEvaluatorConfig, OliveEvaluatorFactory
+from olive.common.hf.login import huggingface_login
+from olive.evaluator.olive_evaluator import OliveEvaluator, OliveEvaluatorConfig
 from olive.logging import set_verbosity_from_env
 from olive.model import ModelConfig
 
@@ -29,9 +29,9 @@ def evaluate_entry(config, output_path, output_name, accelerator_type, execution
 
     model = ModelConfig.from_json(model_json).create_model()
 
-    evaluator: OliveEvaluator = OliveEvaluatorFactory.create_evaluator_for_model(model)
+    evaluator: OliveEvaluator = evaluator_config.create_evaluator(model)
     metrics_res = evaluator.evaluate(
-        model, None, evaluator_config.metrics, device=accelerator_type, execution_providers=execution_provider
+        model, evaluator_config.metrics, device=accelerator_type, execution_providers=execution_provider
     )
 
     with open(os.path.join(output_path, f"{output_name}"), "w") as f:

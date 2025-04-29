@@ -2,6 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+import inspect
 import logging
 from typing import ClassVar, Dict, Union
 
@@ -11,7 +12,10 @@ logger = logging.getLogger(__name__)
 
 
 class Registry:
-    """Registry for data components and data containers."""
+    """Registry for data components and data containers.
+
+    All component names are case insensitive and stored in lower case.
+    """
 
     _REGISTRY: ClassVar[Dict] = {
         DataComponentType.LOAD_DATASET.value: {},
@@ -35,13 +39,29 @@ class Registry:
         """
 
         def decorator(component):
-            component_name = name if name is not None else component.__name__
+            # make the component name case insensitive
+            component_name = (name if name is not None else component.__name__).lower()
             if component_name in cls._REGISTRY[sub_type.value]:
-                # don't want to warn here since user script is loaded everytime data config is initialized
-                # there is nothing user can do to fix this warning
-                logger.debug(
-                    "Component %s already registered in %s, will override the old one.", component_name, sub_type.value
-                )
+                component_1 = cls._REGISTRY[sub_type.value][component_name]
+                component_2 = component
+
+                component_file_1 = inspect.getfile(component_1)
+                component_file_2 = inspect.getfile(component_2)
+
+                _, component_line_no_1 = inspect.getsourcelines(component_1)
+                _, component_line_no_2 = inspect.getsourcelines(component_2)
+
+                if (component_file_1 != component_file_2) or (component_line_no_1 != component_line_no_2):
+                    logger.critical(
+                        "%s: Duplicate component registration.\n"
+                        "\tPrevious Registration: %s:%d\n"
+                        "\tCurrent Registration: %s:%d.",
+                        component_name,
+                        component_file_1,
+                        component_line_no_1,
+                        component_file_2,
+                        component_line_no_2,
+                    )
             cls._REGISTRY[sub_type.value][component_name] = component
             return component
 
@@ -151,11 +171,11 @@ class Registry:
             Type: the component class
 
         """
-        return cls._REGISTRY[sub_type][name]
+        return cls._REGISTRY[sub_type][name.lower()]
 
     @classmethod
     def get_component(cls, component: str, name: str):
-        return cls._REGISTRY[component][name]
+        return cls._REGISTRY[component][name.lower()]
 
     @classmethod
     def get_load_dataset_component(cls, name: str):
@@ -218,7 +238,7 @@ class Registry:
 
         """
         name = name or DefaultDataContainer.DATA_CONTAINER.value
-        return cls._REGISTRY[DataContainerType.DATA_CONTAINER.value][name]
+        return cls._REGISTRY[DataContainerType.DATA_CONTAINER.value][name.lower()]
 
     @classmethod
     def get_default_load_dataset_component(cls):

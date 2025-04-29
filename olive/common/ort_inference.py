@@ -52,7 +52,7 @@ def get_ort_inference_session(
 
     sess_options = ort.SessionOptions()
     if use_ort_extensions:
-        # register custom ops for onnxruntime-extensions
+        # register custom ops for onnxruntime_extensions
         from onnxruntime_extensions import get_library_path
 
         sess_options.register_custom_ops_library(get_library_path())
@@ -79,6 +79,7 @@ def get_ort_inference_session(
     execution_mode = session_options.get("execution_mode")
     graph_optimization_level = session_options.get("graph_optimization_level")
     extra_session_config = session_options.get("extra_session_config")
+    log_severity_level = session_options.get("log_severity_level")
     if enable_profiling:
         sess_options.enable_profiling = True
     if inter_op_num_threads:
@@ -90,11 +91,14 @@ def get_ort_inference_session(
             sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
         elif execution_mode == 1:
             sess_options.execution_mode = ort.ExecutionMode.ORT_PARALLEL
-    if graph_optimization_level:
+    if graph_optimization_level is not None:
+        # level can be 0, 1, 2, 3
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel(graph_optimization_level)
     if extra_session_config:
         for key, value in extra_session_config.items():
             sess_options.add_session_config_entry(key, value)
+    if log_severity_level is not None:
+        sess_options.log_severity_level = log_severity_level
 
     # execution providers and provider options
     providers, provider_options = check_and_normalize_provider_args(
@@ -285,7 +289,7 @@ class OrtInferenceSession:
         """Get the full input feed including constant inputs."""
         return {**input_feed, **self.constant_inputs}
 
-    def run(self, input_feed: Dict[str, "NDArray"]) -> Sequence["NDArray"]:
+    def run(self, output_names, input_feed: Dict[str, "NDArray"], run_options=None) -> Sequence["NDArray"]:
         """Run inference with the given input data."""
         input_feed = self.get_full_input_feed(input_feed)
         if self.io_bind and self.device == "gpu":
@@ -303,7 +307,7 @@ class OrtInferenceSession:
             res = [i.numpy() for i in self.io_binding.get_outputs()]
             self.io_binding.clear_binding_inputs()
         else:
-            res = self.session.run(input_feed=input_feed, output_names=None)
+            res = self.session.run(None, input_feed)
         return res
 
     def time_run(
@@ -331,7 +335,7 @@ class OrtInferenceSession:
                 latencies.append(time.perf_counter() - t)
             else:
                 t = time.perf_counter()
-                self.session.run(input_feed=input_feed, output_names=None)
+                self.session.run(None, input_feed)
                 latencies.append(time.perf_counter() - t)
             time.sleep(sleep_time)
 

@@ -5,7 +5,7 @@
 
 # mcr image https://github.com/microsoft/mcr
 # tag list https://mcr.microsoft.com/v2/azureml/openmpi4.1.0-ubuntu20.04/tags/list
-FROM mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04
+FROM mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu22.04
 
 ARG OPENVINO_VERSION=2023.3.0
 
@@ -19,9 +19,11 @@ RUN pip install pandas \
             psutil \
             datasets \
             transformers \
+            optimum \
             onnxruntime-openvino \
+            "numpy<2.0" \
             evaluate \
-            scikit-learn \
+            scikit-learn==1.5.2 \
             git+https://github.com/microsoft/Olive.git \
             --no-cache-dir
 

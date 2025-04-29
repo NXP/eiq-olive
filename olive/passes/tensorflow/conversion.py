@@ -6,13 +6,13 @@
 #
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Type
 
 from olive.hardware import AcceleratorSpec
 from olive.model import ONNXModelHandler
 from olive.model.handler.tensorflow import TFLiteModelHandler
 from olive.passes.olive_pass import Pass
-from olive.passes.pass_config import PassConfigParam
+from olive.passes.pass_config import BasePassConfig, PassConfigParam
 from onnx2tflite.src.logger import conversion_log, MessageImportance
 
 logger = logging.getLogger(__name__)
@@ -132,8 +132,7 @@ class TFLiteConversion(Pass):
     def _run_for_config(
         self,
         model: ONNXModelHandler,
-        data_root: str,
-        config: Dict[str, Any],
+        config: Type[BasePassConfig],
         output_model_dir: str,
     ) -> TFLiteModelHandler:
         if not isinstance(model, ONNXModelHandler):
@@ -141,6 +140,8 @@ class TFLiteConversion(Pass):
 
         from onnx2tflite.src.conversion_config import ConversionConfig
         import onnx2tflite.src.converter.convert as convert
+
+        config = dict(config)
 
         try:
             if "symbolic_dimension_into_static" in config:

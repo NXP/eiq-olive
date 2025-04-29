@@ -30,9 +30,16 @@ from olive.passes.onnx.dynamic_to_fixed_shape import DynamicToFixedShape
         (
             {
                 "dim_param": ["batch_size"],
-                "dim_value": [0],
+                "dim_value": [-1],
             },
-            "dim_value must be all > 0 when dim_param is provided.",
+            "dim_value must be all >= 0 when dim_param is provided.",
+        ),
+        (
+            {
+                "input_name": ["input"],
+                "input_shape": [[1, 0, 256, 256]],
+            },
+            "input_shape must be all > 0 when input_name is provided.",
         ),
     ],
 )
@@ -63,7 +70,7 @@ def test_dynamic_to_fixed_shape(pass_config, tmp_path):
     assert input_onnx_model.graph.output[0].type.tensor_type.shape.dim[0].dim_param == "batch_size"
 
     p = create_pass_from_dict(DynamicToFixedShape, pass_config, disable_search=True)
-    out = p.run(input_model, None, tmp_path)
+    out = p.run(input_model, tmp_path)
     output_model = out.load_model()
 
     assert output_model.graph.input[0].type.tensor_type.shape.dim[0].dim_value == 1

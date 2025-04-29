@@ -12,6 +12,7 @@ from torchvision import transforms
 from torchvision.datasets import CIFAR10
 
 from olive.constants import Framework
+from olive.data.registry import Registry
 from olive.model import OliveModelHandler
 
 # -------------------------------------------------------------------------
@@ -71,7 +72,8 @@ class PytorchResNetDataset(Dataset):
 # -------------------------------------------------------------------------
 
 
-def post_process(output):
+@Registry.register_post_process()
+def cifar10_post_process(output):
     # max_elements, max_indices = torch.max(input_tensor, dim)
     # This is a two classes classification task, result is a 2D array [[ 1.1541, -0.6622],[[-0.2137,  0.0360]]]
     # the index of this array among dimension 1 will be [1, 0], which are labels of this task
@@ -80,13 +82,13 @@ def post_process(output):
 
 
 # -------------------------------------------------------------------------
-# Dataloader for Evaluation and Performance Tuning
+# DataSet for Evaluation and Performance Tuning
 # -------------------------------------------------------------------------
 
 
-def create_dataloader(data_dir, batch_size, *args, **kwargs):
-    cifar10_dataset = CIFAR10DataSet(data_dir)
-    return DataLoader(PytorchResNetDataset(cifar10_dataset.val_dataset), batch_size=batch_size, drop_last=True)
+@Registry.register_dataset()
+def cifar10_val_dataset(data_dir):
+    return PytorchResNetDataset(CIFAR10DataSet(data_dir).val_dataset)
 
 
 # -------------------------------------------------------------------------
@@ -97,7 +99,7 @@ def create_dataloader(data_dir, batch_size, *args, **kwargs):
 class ResnetCalibrationDataReader(CalibrationDataReader):
     def __init__(self, data_dir: str, batch_size: int = 16):
         super().__init__()
-        self.iterator = iter(create_train_dataloader(data_dir, batch_size))
+        self.iterator = iter(cifar10_train_dataset(data_dir, batch_size=batch_size))
         self.sample_counter = 500
 
     def get_next(self) -> dict:
@@ -105,14 +107,16 @@ class ResnetCalibrationDataReader(CalibrationDataReader):
             return None
 
         try:
-            item = {"input": next(self.iterator)[0].numpy()}
+            item = {"input": torch.unsqueeze(next(self.iterator)[0], dim=0)}
             self.sample_counter -= 1
             return item
         except Exception:
             return None
 
 
-def resnet_calibration_reader(data_dir, batch_size, *args, **kwargs):
+@Registry.register_dataloader()
+def resnet_calibration_dataloader(dataset, batch_size, **kwargs):
+    data_dir = kwargs.pop("data_dir", None)
     return ResnetCalibrationDataReader(data_dir, batch_size=batch_size)
 
 
@@ -122,9 +126,9 @@ def resnet_calibration_reader(data_dir, batch_size, *args, **kwargs):
 
 
 # keep this to demo/test custom evaluation function
-def eval_accuracy(model: OliveModelHandler, data_dir, batch_size, device, execution_providers):
+def eval_accuracy(model: OliveModelHandler, device, execution_providers, data_dir, batch_size):
     sess = model.prepare_session(inference_settings=None, device=device, execution_providers=execution_providers)
-    dataloader = create_dataloader(data_dir, batch_size)
+    dataloader = DataLoader(cifar10_val_dataset(data_dir), batch_size=batch_size, drop_last=True)
 
     preds = []
     target = []
@@ -137,22 +141,19 @@ def eval_accuracy(model: OliveModelHandler, data_dir, batch_size, device, execut
             else:
                 input_data_copy = input_data.tolist()
                 input_dict = dict(zip(input_names, [input_data_copy]))
-            res = sess.run(input_feed=input_dict, output_names=None)
+            res = model.run_session(sess, input_dict)
             if len(output_names) == 1:
                 result = torch.Tensor(res[0])
             else:
                 result = torch.Tensor(res)
-            outputs = post_process(result)
+            outputs = cifar10_post_process(result)
             preds.extend(outputs.tolist())
             target.extend(labels.data.tolist())
 
     elif model.framework == Framework.PYTORCH:
         for input_data, labels in dataloader:
-            if isinstance(input_data, dict):
-                result = sess(**input_data)
-            else:
-                result = sess(input_data)
-            outputs = post_process(result)
+            result = model.run_session(sess, input_data)
+            outputs = cifar10_post_process(result)
             preds.extend(outputs.tolist())
             target.extend(labels.data.tolist())
 
@@ -179,9 +180,10 @@ def create_qat_config():
 # -------------------------------------------------------------------------
 
 
-def create_train_dataloader(data_dir, batchsize, *args, **kwargs):
-    cifar10_dataset = CIFAR10DataSet(data_dir)
-    return DataLoader(PytorchResNetDataset(cifar10_dataset.train_dataset), batch_size=batchsize, drop_last=True)
+@Registry.register_dataset()
+def cifar10_train_dataset(data_dir, **kwargs):
+    dataset = CIFAR10DataSet(data_dir)
+    return PytorchResNetDataset(dataset.train_dataset)
 
 
 # -------------------------------------------------------------------------

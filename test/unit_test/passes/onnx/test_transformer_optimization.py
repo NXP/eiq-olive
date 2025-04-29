@@ -4,7 +4,6 @@
 # --------------------------------------------------------------------------
 import logging
 import shutil
-from copy import deepcopy
 from test.unit_test.utils import ONNX_MODEL_PATH, get_onnx_model
 from unittest.mock import MagicMock, patch
 
@@ -21,9 +20,9 @@ from olive.passes.onnx.transformer_optimization import OrtTransformersOptimizati
 
 def test_fusion_options():
     config = {"model_type": "bart", "optimization_options": {"use_multi_head_attention": True}}
-    config = OrtTransformersOptimization.generate_search_space(DEFAULT_CPU_ACCELERATOR, config, True)
+    config = OrtTransformersOptimization.generate_config(DEFAULT_CPU_ACCELERATOR, config, disable_search=True)
     transformer_optimization = OrtTransformersOptimization(DEFAULT_CPU_ACCELERATOR, config, True)
-    run_config = deepcopy(config)
+    run_config = config.dict()
     del (
         run_config["float16"],
         run_config["input_int32"],
@@ -47,12 +46,12 @@ def test_ort_transformer_optimization_pass(tmp_path):
     input_model = get_onnx_model()
     config = {"model_type": "bert"}
 
-    config = OrtTransformersOptimization.generate_search_space(DEFAULT_CPU_ACCELERATOR, config, disable_search=True)
+    config = OrtTransformersOptimization.generate_config(DEFAULT_CPU_ACCELERATOR, config, disable_search=True)
     p = OrtTransformersOptimization(DEFAULT_CPU_ACCELERATOR, config, True)
     output_folder = str(tmp_path / "onnx")
 
     # execute
-    p.run(input_model, None, output_folder)
+    p.run(input_model, output_folder)
 
 
 @pytest.mark.parametrize("use_gpu", [True, False])
@@ -66,14 +65,18 @@ def test_invalid_ep_config(use_gpu, fp16, accelerator_spec, mock_inferece_sessio
     from onnxruntime.transformers.onnx_model import OnnxModel
     from packaging import version
 
+    if accelerator_spec == DEFAULT_GPU_TRT_ACCELERATOR and not mock_inferece_session:
+        pytest.skip("Skipping test: TRT EP does not support compiled nodes when mock_inferece_session=False")
+
     logger = logging.getLogger("olive")
     logger.propagate = True
 
     input_model = get_onnx_model()
     config = {"model_type": "bert", "use_gpu": use_gpu, "float16": fp16}
-    config = OrtTransformersOptimization.generate_search_space(accelerator_spec, config, disable_search=True)
+    config = OrtTransformersOptimization.generate_config(accelerator_spec, config, disable_search=True)
     p = OrtTransformersOptimization(accelerator_spec, config, True)
-    is_pruned = not p.validate_search_point(config, accelerator_spec)
+    is_pruned = not p.validate_config(config, accelerator_spec)
+
     if accelerator_spec.execution_provider == "CPUExecutionProvider":
         if fp16 and use_gpu:
             assert is_pruned
@@ -88,8 +91,8 @@ def test_invalid_ep_config(use_gpu, fp16, accelerator_spec, mock_inferece_sessio
         assert is_pruned
         assert (
             "TensorRT has its own float16 implementation, please avoid to use float16 in transformers "
-            "optimization. Suggest to set 'trt_fp16_enable' as True in OrtPerfTuning."
-        ) in caplog.text
+            "optimization. Suggest to set 'trt_fp16_enable' as True in OrtSessionParamsTuning." in caplog.text
+        )
 
     if not is_pruned:
         inference_session_mock_call_count = 0
@@ -111,9 +114,9 @@ def test_invalid_ep_config(use_gpu, fp16, accelerator_spec, mock_inferece_sessio
             output_folder = str(tmp_path / "onnx")
             if mock_inferece_session:
                 with patch.object(ort.InferenceSession, "__init__", new=inference_session_init):
-                    p.run(input_model, None, output_folder)
+                    p.run(input_model, output_folder)
             else:
-                p.run(input_model, None, output_folder)
+                p.run(input_model, output_folder)
             optimize_by_fusion_mock.assert_called()
 
         if accelerator_spec.execution_provider == "TensorrtExecutionProvider":
@@ -122,7 +125,7 @@ def test_invalid_ep_config(use_gpu, fp16, accelerator_spec, mock_inferece_sessio
                     # the use_gpu will be ignored by optimize_model, please refef to the following links for more info.
                     # https://github.com/microsoft/onnxruntime/blob/v1.15.1/onnxruntime/python/tools/transformers/optimizer.py#L280
                     if version.parse(ort.__version__) >= version.parse("1.16.0"):
-                        # for TensorRT EP, the graph optmization will be skipped but the fusion will be applied.
+                        # for TensorRT EP, the graph optimization will be skipped but the fusion will be applied.
                         assert "There is no gpu for onnxruntime to do optimization." in caplog.text
                         if mock_inferece_session:
                             assert inference_session_mock_call_count == 0
@@ -139,13 +142,13 @@ def test_transformer_optimization_invalid_model_type(tmp_path):
     input_model = get_onnx_model()
     config = {"model_type": None}
 
-    config = OrtTransformersOptimization.generate_search_space(DEFAULT_CPU_ACCELERATOR, config, disable_search=True)
+    config = OrtTransformersOptimization.generate_config(DEFAULT_CPU_ACCELERATOR, config, disable_search=True)
     p = OrtTransformersOptimization(DEFAULT_CPU_ACCELERATOR, config, True)
     output_folder = str(tmp_path / "onnx")
 
-    with pytest.raises(ValueError):  # noqa: PT011
-        # execute
-        p.run(input_model, None, output_folder)
+    output = p.run(input_model, output_folder)
+
+    assert output == input_model
 
 
 @patch("onnxruntime.transformers.optimizer.optimize_model")
@@ -157,10 +160,10 @@ def test_optimization_with_provider(mock_proto_to_model, mock_optimize_model, tm
     config = {"model_type": "bert", "use_gpu": True}
 
     dml_ep = AcceleratorSpec(accelerator_type=Device.GPU, execution_provider="DmlExecutionProvider")
-    config = OrtTransformersOptimization.generate_search_space(dml_ep, config, disable_search=True)
+    config = OrtTransformersOptimization.generate_config(dml_ep, config, disable_search=True)
     p = OrtTransformersOptimization(dml_ep, config, True)
     output_folder = str(tmp_path / "onnx")
 
     # execute
-    p.run(input_model, None, output_folder)
+    p.run(input_model, output_folder)
     assert mock_optimize_model.call_args.kwargs["provider"] == "dml"

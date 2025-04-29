@@ -3,7 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from olive.constants import Framework, ModelFileFormat
 from olive.hardware.accelerator import Device
@@ -53,7 +53,7 @@ class OpenVINOModelHandler(OliveModelHandler):
             "weights": str(ov_weights.resolve()),
         }
 
-    def load_model(self, rank: int = None):
+    def load_model(self, rank: int = None, cache_model: bool = True):
         try:
             import openvino as ov
         except ImportError:
@@ -79,3 +79,11 @@ class OpenVINOModelHandler(OliveModelHandler):
             device = "MYRIAD"
         compiled_model = core.compile_model(self.model_config["model"], device.upper())
         return compiled_model.create_infer_request()
+
+    def run_session(
+        self,
+        session: Any = None,
+        inputs: Union[Dict[str, Any], List[Any], Tuple[Any, ...]] = None,
+        **kwargs: Dict[str, Any],
+    ) -> Any:
+        return session.infer(inputs, **kwargs)

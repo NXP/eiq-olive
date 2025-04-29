@@ -5,8 +5,8 @@
 
 import argparse
 import json
+from collections import OrderedDict
 
-from olive.common.utils import set_tempdir
 from olive.workflows import run as olive_run
 
 
@@ -30,9 +30,6 @@ def main(raw_args=None):
     args = get_args(raw_args)
     model_name = args.model_name
 
-    # set tempdir
-    set_tempdir(args.tempdir)
-
     input_template = "llama2_model_builder_template.json"
     with open(input_template) as f:
         template_json_str = f.read()
@@ -42,18 +39,16 @@ def main(raw_args=None):
     template_json = json.loads(template_json_str)
 
     # add pass flows
-    if args.metadata_only:
-        template_json["pass_flows"] = [["conversion", "metadata"]]
-    else:
-        template_json["pass_flows"] = [["builder", "perf_tuning"]]
-    template_json["engine"]["output_dir"] = f"models/{model_name}"
+    used_passes = {"conversion", "metadata"} if args.metadata_only else {"builder", "session_params_tuning"}
+    template_json["passes"] = OrderedDict([(k, v) for k, v in template_json["passes"].items() if k in used_passes])
+    template_json["output_dir"] = f"models/{model_name}"
 
     # dump config
     output_template = "llama2_model_builder.json"
     with open(output_template, "w") as f:
         json.dump(template_json, f, indent=4)
 
-    olive_run(template_json)  # pylint: disable=not-callable
+    olive_run(template_json, tempdir=args.tempdir)  # pylint: disable=not-callable
 
 
 if __name__ == "__main__":

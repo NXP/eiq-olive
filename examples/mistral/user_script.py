@@ -5,10 +5,11 @@
 import random
 from typing import List, Tuple
 
-import numpy as np
 import torch
 from datasets import load_dataset
 from transformers import AutoConfig, LlamaTokenizer
+
+from olive.data.registry import Registry
 
 # pylint: disable=redefined-outer-name
 
@@ -16,16 +17,9 @@ model_id = "mistralai/Mistral-7B-v0.1"
 config = AutoConfig.from_pretrained(model_id)
 
 
-def calib_dataloader(data_dir, batch_size, *args, **kwargs):
-    model_path = kwargs.pop("model_path")
-    return PileDataloader(model_path, batch_size=batch_size)
-
-
-def create_dataloader(data_dir, batchsize, *args, **kwargs):
-    dataloader = PileDataloader(model_id, batch_size=batchsize, seq_len=32, past_seq_len=32, sub_folder="train")
-    for data, label in dataloader:
-        d = {name: to_numpy(inp_data) for name, inp_data in data.items()}
-        yield d, label
+@Registry.register_dataloader()
+def mistralai_calib_dataloader(data_dir, batch_size, *args, **kwargs):
+    return PileDataloader(batch_size=batch_size)
 
 
 def tokenize_function(examples):
@@ -34,7 +28,7 @@ def tokenize_function(examples):
 
 
 class PileDataloader:
-    def __init__(self, model_path, batch_size=1, seq_len=32, past_seq_len=32, sub_folder="train"):
+    def __init__(self, batch_size=1, seq_len=32, past_seq_len=32, sub_folder="train"):
         random.seed(0)
         self.batch_size = batch_size
         self.seq_len = seq_len
@@ -78,44 +72,6 @@ class PileDataloader:
             yield inputs, 0
 
 
-def get_merged_sample_with_past_kv_inputs(
-    config,
-    batch_size: int,
-    seq_len: int,
-    past_seq_len: int,
-    use_fp16: bool = False,
-    model_id: str = "",
-):
-    """Get inputs for forward pass with past_key_values.
-
-    This is for the "merged" model which can be used for both prompt generation and token generation.
-    For prompt generation, past_seq_len = 0 and seq_len >= 1. past_kv is a list of tuples of empty tensors.
-    For token generation, past_seq_len >= 1 and seq_len = 1.
-
-    Shape of outputs:
-        input_ids: (batch_size, seq_len)
-        attention_mask: (batch_size, past_seq_len + seq_len)
-        position_ids: (batch_size, seq_len)
-        past_key: (batch_size, num_heads, past_seq_len, head_size)
-        past_value: (batch_size, num_heads, past_seq_len, head_size)
-    """
-    # Note: No need for separate function for legacy prompt and token generation
-    # prompt generation (get_sample_inputs):
-    #   past_seq_len = 0, seq_len >= 1, use_gqa = False, use_fp16 = False
-    #   and remove past_kv from the output
-    # token generation (get_sample_with_past_kv_inputs):
-    #   past_seq_len >= 1, seq_len = 1, use_gqa = False, use_fp16 = False
-    # By using a single function with no default values, we can avoid confusion and are deliberate about the sizes
-    # can instead write dummy input functions like 'get_merged_decoder_with_past_dummy_inputs' if needed
-    world_size = 1
-    input_ids = torch.randint(low=0, high=config.vocab_size, size=(batch_size, seq_len), dtype=torch.int64)
-    attention_mask = torch.ones(batch_size, past_seq_len + seq_len, dtype=torch.int64)
-    position_ids = get_position_ids(attention_mask, past_seq_len=past_seq_len)
-    past_kv = get_past_kv_inputs(config, batch_size, past_seq_len, use_fp16=use_fp16, world_size=world_size)
-
-    return (input_ids, attention_mask, position_ids, past_kv)
-
-
 def get_position_ids(attention_mask: torch.Tensor, past_seq_len: int):
     """Get position_ids from attention_mask."""
     # this is generic but in practice we only expect to see two scenarios for (past_seq_len, seq_len)
@@ -152,18 +108,3 @@ def flatten_past_kv_inputs(past_key_values: List[Tuple[torch.Tensor, torch.Tenso
         past_kv[f"past_key_values.{i}.key"] = past_k
         past_kv[f"past_key_values.{i}.value"] = past_v
     return past_kv
-
-
-def to_numpy(data):
-    """Convert to numpy ndarrays."""
-    if not isinstance(data, np.ndarray):
-        if isinstance(data, torch.Tensor):
-            if data.dtype is torch.bfloat16:  # pragma: no cover
-                return data.detach().cpu().to(torch.float32).numpy()
-            if data.dtype is torch.chalf:  # pragma: no cover
-                return data.detach().cpu().to(torch.cfloat).numpy()
-            return data.detach().cpu().numpy()
-        else:
-            return np.array(data)
-    else:
-        return data

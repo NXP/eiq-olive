@@ -3,19 +3,17 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 import logging
-from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Union
+from typing import TYPE_CHECKING, Callable, Dict, List, Type, Union
 
-from olive.cache import get_local_path_from_root
 from olive.common.config_utils import validate_config
+from olive.common.utils import StrEnumBase
 from olive.data.config import DataConfig
 from olive.hardware.accelerator import AcceleratorSpec, Device
 from olive.model import OliveModelHandler
 from olive.model.handler import OpenVINOModelHandler
 from olive.passes import Pass
-from olive.passes.pass_config import ParamCategory, PassConfigParam
-from olive.resource_path import OLIVE_RESOURCE_ANNOTATIONS
+from olive.passes.pass_config import BasePassConfig, ParamCategory, PassConfigParam, get_user_script_data_config
 
 if TYPE_CHECKING:
     from openvino import CompiledModel
@@ -43,22 +41,22 @@ def _default_validate_func(model: "CompiledModel", validation_loader) -> float:
     return accuracy_score(predictions, references)
 
 
-class ModelTypeEnum(str, Enum):
+class ModelTypeEnum(StrEnumBase):
     TRANSFORMER = "TRANSFORMER"
 
 
-class PresetEnum(str, Enum):
+class PresetEnum(StrEnumBase):
     PERFORMANCE = "PERFORMANCE"
     MIXED = "MIXED"
 
 
-class IgnoreScopeTypeEnum(str, Enum):
+class IgnoreScopeTypeEnum(StrEnumBase):
     NAMES = "names"
     TYPES = "types"
     PATTERNS = "patterns"
 
 
-class DropTypeEnum(str, Enum):
+class DropTypeEnum(StrEnumBase):
     ABSOLUTE = "ABSOLUTE"
     RELATIVE = "RELATIVE"
 
@@ -69,39 +67,14 @@ class OpenVINOQuantizationBase(Pass):
     Please refer to https://docs.openvino.ai/2023.3/ptq_introduction.html for more details.
     """
 
-    _requires_user_script = True
-
     @classmethod
     def _default_config(cls, accelerator_spec: AcceleratorSpec) -> Dict[str, PassConfigParam]:
         return {
-            "dataloader_func": PassConfigParam(
-                type_=Union[Callable, str],
-                required=False,
-                category=ParamCategory.OBJECT,
-                description=(
-                    "Function/function name to generate dataloader for calibration, required if data_config is None."
-                ),
-            ),
-            "dataloader_func_kwargs": PassConfigParam(
-                type_=Dict[str, Any],
-                description="Keyword arguments for dataloader_func.",
-            ),
-            "data_dir": PassConfigParam(
-                type_=OLIVE_RESOURCE_ANNOTATIONS,
-                category=ParamCategory.DATA,
-                description=(
-                    "Path to the directory containing the dataset. For local data, it is required if dataloader_func"
-                    " is provided."
-                ),
-            ),
-            "batch_size": PassConfigParam(
-                type_=int,
-                default_value=1,
-                description="Data config for calibration, required if dataloader_func is None.",
-            ),
+            **get_user_script_data_config(),
             "data_config": PassConfigParam(
                 type_=Union[DataConfig, Dict],
-                description="Data config for calibration, required if dataloader_func is None.",
+                required=True,
+                description="Data config for calibration.",
             ),
             "model_type": PassConfigParam(
                 type_=ModelTypeEnum,
@@ -117,7 +90,7 @@ class OpenVINOQuantizationBase(Pass):
                 type_=PresetEnum,
                 required=False,
                 default_value=PresetEnum.PERFORMANCE,
-                description=("Defines quantization scheme for the model. Supported values: 'PERFORMANCE', 'MIXED'."),
+                description="Defines quantization scheme for the model. Supported values: 'PERFORMANCE', 'MIXED'.",
             ),
             "ignored_scope": PassConfigParam(
                 type_=Union[str, List[str]],
@@ -133,7 +106,7 @@ class OpenVINOQuantizationBase(Pass):
                 type_=IgnoreScopeTypeEnum,
                 required=False,
                 default_value=None,
-                description=("Defines the type of the ignored scope. Supported values: 'names', 'types', 'patterns'."),
+                description="Defines the type of the ignored scope. Supported values: 'names', 'types', 'patterns'.",
             ),
             "target_device": PassConfigParam(
                 type_=Device,
@@ -169,21 +142,16 @@ class OpenVINOQuantizationBase(Pass):
 
         return nncf.Dataset(common_dataloader, transform_fn)
 
-    def _get_nncf_dataset(self, config, data_root):
+    def _get_nncf_dataset(self, config):
         try:
             import nncf
         except ImportError:
             raise ImportError("Please install olive-ai[openvino] to use OpenVINO pass") from None
 
         data_loader = None
-        if config["dataloader_func"]:
-            data_dir = get_local_path_from_root(data_root, config["data_dir"])
-            data_loader = self._user_module_loader.call_object(
-                config["dataloader_func"], data_dir, config["batch_size"], **(config["dataloader_func_kwargs"] or {})
-            )
-        elif config["data_config"]:
-            data_config = validate_config(config["data_config"], DataConfig)
-            data_loader = data_config.to_data_container().create_dataloader(data_root)
+        if config.data_config:
+            data_config = validate_config(config.data_config, DataConfig)
+            data_loader = data_config.to_data_container().create_dataloader()
 
         def transform_fn(data_item):
             data, _ = data_item
@@ -204,16 +172,14 @@ class OpenVINOQuantizationBase(Pass):
         }
 
         extra_params = {}
-        extra_params["model_type"] = nncf.ModelType.Transformer if config.get("model_type") == "TRANSFORMER" else None
+        extra_params["model_type"] = nncf.ModelType.Transformer if config.model_type == "TRANSFORMER" else None
         extra_params["preset"] = (
-            nncf.QuantizationPreset.PERFORMANCE
-            if config.get("preset") == "PERFORMANCE"
-            else nncf.QuantizationPreset.MIXED
+            nncf.QuantizationPreset.PERFORMANCE if config.preset == "PERFORMANCE" else nncf.QuantizationPreset.MIXED
         )
-        extra_params["target_device"] = device_map.get(config.get("target_device"), nncf.TargetDevice.ANY)
+        extra_params["target_device"] = device_map.get(config.target_device, nncf.TargetDevice.ANY)
 
-        if config.get("ignored_scope"):
-            kwargs = {config.get("ignored_scope_type"): config.get("ignored_scope")}
+        if config.ignored_scope:
+            kwargs = {config.ignored_scope_type: config.ignored_scope}
             extra_params["ignored_scopes"] = nncf.IgnoredScope(**kwargs)
 
         return extra_params
@@ -222,7 +188,7 @@ class OpenVINOQuantizationBase(Pass):
 class OpenVINOQuantization(OpenVINOQuantizationBase):
 
     def _run_for_config(
-        self, model: OpenVINOModelHandler, data_root: str, config: Dict[str, Any], output_model_path: str
+        self, model: OpenVINOModelHandler, config: Type[BasePassConfig], output_model_path: str
     ) -> OpenVINOModelHandler:
         try:
             import nncf
@@ -230,9 +196,7 @@ class OpenVINOQuantization(OpenVINOQuantizationBase):
         except ImportError:
             raise ImportError("Please install olive-ai[openvino] to use OpenVINO model") from None
 
-        assert config["dataloader_func"] or config["data_config"], "dataloader_func or data_config is required."
-
-        calibration_dataset = self._get_nncf_dataset(config, data_root)
+        calibration_dataset = self._get_nncf_dataset(config)
         model = model.load_model()
         extra_params = self._get_extra_params(config)
 
@@ -282,7 +246,7 @@ class OpenVINOQuantizationWithAccuracy(OpenVINOQuantizationBase):
         return config
 
     def _run_for_config(
-        self, model: OliveModelHandler, data_root: str, config: Dict[str, Any], output_model_path: str
+        self, model: OliveModelHandler, config: Type[BasePassConfig], output_model_path: str
     ) -> OliveModelHandler:
         try:
             import nncf
@@ -290,28 +254,26 @@ class OpenVINOQuantizationWithAccuracy(OpenVINOQuantizationBase):
         except ImportError:
             raise ImportError("Please install olive-ai[openvino] to use OpenVINO model") from None
 
-        assert config["dataloader_func"] or config["data_config"], "dataloader_func or data_config is required."
-
-        calibration_dataset = self._get_nncf_dataset(config, data_root)
-        validation_dataset = self._get_nncf_dataset(config, data_root)
+        calibration_dataset = self._get_nncf_dataset(config)
+        validation_dataset = self._get_nncf_dataset(config)
 
         model = model.load_model()
         extra_params = self._get_extra_params(config)
 
         validate_func = (
-            self._user_module_loader.load_object(config["validation_func"])
-            if config.get("validation_func")
+            self._user_module_loader.load_object(config.validation_func)
+            if config.validation_func
             else _default_validate_func
         )
 
-        drop_type = nncf.DropType.ABSOLUTE if config["drop_type"] == "ABSOLUTE" else nncf.DropType.RELATIVE
+        drop_type = nncf.DropType.ABSOLUTE if config.drop_type == "ABSOLUTE" else nncf.DropType.RELATIVE
 
         quantized_model = nncf.quantize_with_accuracy_control(
             model,
             calibration_dataset=calibration_dataset,
             validation_dataset=validation_dataset,
             validation_fn=validate_func,
-            max_drop=config["max_drop"],
+            max_drop=config.max_drop,
             drop_type=drop_type,
             **extra_params
         )

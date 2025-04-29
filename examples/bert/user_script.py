@@ -2,19 +2,22 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
+
+# pylint: disable=attribute-defined-outside-init, protected-access, ungrouped-imports
+# This file is only used by bert_inc_ptq_cpu, bert_qat_customized_train_loop_cpu
+
 import copy
 
 import numpy as np
 import torch
 import torchmetrics
 import transformers
-from datasets import load_dataset, load_metric
+from datasets import load_dataset
 from datasets.utils import logging as datasets_logging
 from neural_compressor.data import DefaultDataLoader
 from torch.utils.data import Dataset
 from transformers import (
     AutoConfig,
-    AutoModelForSequenceClassification,
     AutoTokenizer,
     EvalPrediction,
     Trainer,
@@ -24,36 +27,16 @@ from transformers import (
 )
 
 from olive.constants import Framework
+from olive.data.registry import Registry
 from olive.model import OliveModelHandler
+
+try:
+    from datasets import load_metric
+except ImportError:
+    from evaluate import load as load_metric
 
 datasets_logging.disable_progress_bar()
 datasets_logging.set_verbosity_error()
-
-# pylint: disable=attribute-defined-outside-init, protected-access
-# This file is only used by bert_inc_ptq_cpu, bert_qat_customized_train_loop_cpu
-
-# -------------------------------------------------------------------------
-# Model Loader
-# -------------------------------------------------------------------------
-
-
-def load_pytorch_origin_model(model_path):
-    model = AutoModelForSequenceClassification.from_pretrained("Intel/bert-base-uncased-mrpc")
-    model.eval()
-    return model
-
-
-# -------------------------------------------------------------------------
-# Dummy Input for ONNX Export
-# -------------------------------------------------------------------------
-
-
-def create_input_tensors(model):
-    return {
-        "input_ids": torch.ones(1, 128, dtype=torch.int64),
-        "attention_mask": torch.ones(1, 128, dtype=torch.int64),
-        "token_type_ids": torch.ones(1, 128, dtype=torch.int64),
-    }
 
 
 # -------------------------------------------------------------------------
@@ -133,7 +116,8 @@ class BertDatasetWrapper(Dataset):
 # -------------------------------------------------------------------------
 
 
-def post_process(output):
+@Registry.register_post_process()
+def bert_post_process(output):
     if isinstance(output, transformers.modeling_outputs.SequenceClassifierOutput):
         _, preds = torch.max(output[0], dim=1)
     else:
@@ -146,11 +130,14 @@ def post_process(output):
 # -------------------------------------------------------------------------
 
 
-def create_dataloader(data_dir, batchsize, *args, **kwargs):
-    bert_dataset = BertDataset("Intel/bert-base-uncased-mrpc")
-    return torch.utils.data.DataLoader(
-        BertDatasetWrapper(bert_dataset.get_eval_dataset()), batch_size=batchsize, drop_last=True
-    )
+@Registry.register_dataset()
+def bert_dataset(data_name: str):
+    return BertDataset(data_name).get_eval_dataset()
+
+
+@Registry.register_dataloader()
+def bert_dataloader(dataset, batch_size, **kwargs):
+    return torch.utils.data.DataLoader(BertDatasetWrapper(dataset), batch_size=batch_size, drop_last=True)
 
 
 # -------------------------------------------------------------------------
@@ -179,10 +166,15 @@ class IncBertDataset:
         return input_dict, label
 
 
-def inc_glue_calibration_reader(data_dir, batch_size, *args, **kwargs):
-    bert_dataset = BertDataset("Intel/bert-base-uncased-mrpc")
-    bert_dataset = IncBertDataset(bert_dataset.get_eval_dataset())
-    return DefaultDataLoader(dataset=bert_dataset, batch_size=batch_size)
+@Registry.register_dataset()
+def bert_inc_glue_calibration_dataset(data_dir, **kwargs):
+    dataset = BertDataset("Intel/bert-base-uncased-mrpc")
+    return IncBertDataset(dataset.get_eval_dataset())
+
+
+@Registry.register_dataloader()
+def bert_inc_glue_calibration_dataloader(dataset, batch_size=1, **kwargs):
+    return DefaultDataLoader(dataset=dataset, batch_size=batch_size)
 
 
 # -------------------------------------------------------------------------
@@ -190,8 +182,9 @@ def inc_glue_calibration_reader(data_dir, batch_size, *args, **kwargs):
 # -------------------------------------------------------------------------
 
 
-def eval_accuracy(model: OliveModelHandler, data_dir, batch_size, device, execution_providers):
-    dataloader = create_dataloader(data_dir, batch_size)
+def eval_accuracy(model: OliveModelHandler, device, execution_providers, batch_size=1, **kwargs):
+    dataset = bert_dataset("Intel/bert-base-uncased-mrpc")
+    dataloader = bert_dataloader(dataset, batch_size)
     preds = []
     target = []
     sess = model.prepare_session(inference_settings=None, device=device, execution_providers=execution_providers)
@@ -204,21 +197,18 @@ def eval_accuracy(model: OliveModelHandler, data_dir, batch_size, device, execut
             else:
                 inputs = inputs_i.tolist()
                 input_dict = dict(zip(input_names, [inputs]))
-            res = sess.run(input_feed=input_dict, output_names=None)
+            res = model.run_session(sess, input_dict)
             if len(output_names) == 1:
                 result = torch.Tensor(res[0])
             else:
                 result = torch.Tensor(res)
-            outputs = post_process(result)
+            outputs = bert_post_process(result)
             preds.extend(outputs.tolist())
             target.extend(labels.data.tolist())
     elif model.framework == Framework.PYTORCH:
         for inputs, labels in dataloader:
-            if isinstance(inputs, dict):
-                result = sess(**inputs)
-            else:
-                result = sess(inputs)
-            outputs = post_process(result)
+            result = model.run_session(sess, inputs)
+            outputs = bert_post_process(result)
             preds.extend(outputs.tolist())
             target.extend(labels.data.tolist())
 
@@ -256,17 +246,18 @@ def training_loop_func(model):
     training_args.save_strategy = "steps"
     training_args.save_total_limit = 1
     training_args.metric_for_best_model = "accuracy"
+    training_args.save_safetensors = False
 
-    bert_dataset = BertDataset("Intel/bert-base-uncased-mrpc")
+    dataset = BertDataset("Intel/bert-base-uncased-mrpc")
 
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=bert_dataset.get_train_dataset(),
-        eval_dataset=bert_dataset.get_eval_dataset(),
+        train_dataset=dataset.get_train_dataset(),
+        eval_dataset=dataset.get_eval_dataset(),
         compute_metrics=compute_metrics,
-        tokenizer=bert_dataset.tokenizer,
-        data_collator=bert_dataset.data_collator,
+        tokenizer=dataset.tokenizer,
+        data_collator=dataset.data_collator,
     )
 
     trainer.train(resume_from_checkpoint=None)

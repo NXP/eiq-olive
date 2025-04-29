@@ -5,11 +5,10 @@
 from copy import deepcopy
 from typing import Any, Dict, List, Union
 
-from olive.common.config_utils import ConfigBase
+from olive.common.config_utils import ConfigBase, get_the_flattened_and_tree_spec
+from olive.common.hf.wrapper import ModelWrapper
 from olive.common.pydantic_v1 import validator
-from olive.common.utils import find_first_matched_value
 from olive.model.config.kv_cache_config import KVCacheConfig
-from olive.model.utils.hf_mappings import HIDDEN_SIZE_NAMES, NUM_HEADS_NAMES, NUM_HIDDEN_LAYER_NAMES
 
 
 class IoConfig(ConfigBase):
@@ -23,6 +22,12 @@ class IoConfig(ConfigBase):
             "clip_input": { "0": "batch", "1": "channels", "2": "height", "3": "width" },
             "images": { "0": "batch", "1": "height", "2": "width", "3": "channels" }
         },
+        "dynamic_shapes": {
+            "clip_input": { "0": "batch", "1": "channels",
+                "2": "height", "3": "width" },
+            "images": { "0": "batch", "1": "height",
+                "2": "width", "3": "channels" }
+        },
         "kv_cache": None
     }
     """
@@ -35,6 +40,10 @@ class IoConfig(ConfigBase):
     output_shapes: List[List[int]] = None
     output_types: List[str] = None
     dynamic_axes: Dict[str, Dict[int, str]] = None
+    # dynamic_shapes is different from dynamic_axes, it is nested.
+    # We need to post-process its keys to int under onnx/conversion.py
+    # for example, {"input_ids": {"0": "batch"}}
+    dynamic_shapes: Union[List[Any], Dict[str, Any]] = None
     # ONNX exporter might mark dimension like 'Transposepresent_value_self_1_dim_2' in shape inference
     # even though we want the dimension to be a constant int.
     # We use a workaround here: first use dim_param like "1" to represent the dimension, and then
@@ -76,6 +85,20 @@ class IoConfig(ConfigBase):
         for k, value in dynamic_axes.items():
             dynamic_axes[k] = {int(kk): vv for kk, vv in value.items()}
         return dynamic_axes
+
+    @validator("dynamic_shapes")
+    def convert_dynamic_shapes(cls, v):
+        if not v:
+            return v
+
+        flattened, tree_spec = get_the_flattened_and_tree_spec(v, leave_is_str=True)
+        new_flattened = []
+        for axes in flattened:
+            if isinstance(axes, dict):
+                new_flattened.append({int(kk): vv for kk, vv in axes.items()})
+            else:
+                new_flattened.append(axes)
+        return tree_spec.unflatten(new_flattened)
 
     @validator("string_to_int_dim_params")
     def check_string_to_int_dim_params(cls, v):
@@ -119,23 +142,24 @@ class IoConfig(ConfigBase):
 
 
 def complete_kv_cache_with_model_attributes(kv_cache, model_attributes):
-    num_hidden_layers = find_first_matched_value(model_attributes, NUM_HIDDEN_LAYER_NAMES)
-    num_attention_heads = find_first_matched_value(model_attributes, NUM_HEADS_NAMES)
-    hidden_size = find_first_matched_value(model_attributes, HIDDEN_SIZE_NAMES)
+    model_wrapper = ModelWrapper(model_attributes)
+    world_size = model_attributes.get("world_size", 1)
     kv_cache_obj = None
     if isinstance(kv_cache, bool) and kv_cache:
         kv_cache_obj = KVCacheConfig(
-            num_hidden_layers=num_hidden_layers,
-            num_attention_heads=num_attention_heads,
-            hidden_size=hidden_size,
+            num_hidden_layers=model_wrapper.num_hidden_layers,
+            num_attention_heads=model_wrapper.num_attention_heads,
+            hidden_size=model_wrapper.hidden_size,
+            world_size=world_size,
         )
     elif isinstance(kv_cache, dict):
         kv_cache_dict = deepcopy(kv_cache)
         kv_cache_dict.update(
             {
-                "num_hidden_layers": kv_cache.get("num_hidden_layers") or num_hidden_layers,
-                "num_attention_heads": kv_cache.get("num_attention_heads") or num_attention_heads,
-                "hidden_size": kv_cache.get("hidden_size") or hidden_size,
+                "num_hidden_layers": kv_cache.get("num_hidden_layers") or model_wrapper.num_hidden_layers,
+                "num_attention_heads": kv_cache.get("num_attention_heads") or model_wrapper.num_attention_heads,
+                "hidden_size": kv_cache.get("hidden_size") or model_wrapper.hidden_size,
+                "world_size": kv_cache.get("world_size") or world_size,
             }
         )
         kv_cache_obj = KVCacheConfig.parse_obj(kv_cache_dict)
@@ -160,6 +184,8 @@ def extend_io_config_with_kv_cache(io_config, kv_cache_config: KVCacheConfig):
     output_names = kv_cache_config.get_output_names()
     dynamic_axes = deepcopy(io_config.dynamic_axes or {})
     dynamic_axes.update(kv_cache_config.get_dynamic_axes())
+    dynamic_shapes = deepcopy(io_config.dynamic_shapes or {})
+    dynamic_shapes.update(kv_cache_config.get_dynamic_shapes())
     return IoConfig(
         input_names=(io_config.input_names or []) + kv_names,
         input_shapes=(io_config.input_shapes or []) + kv_shapes,
@@ -168,6 +194,7 @@ def extend_io_config_with_kv_cache(io_config, kv_cache_config: KVCacheConfig):
         output_shapes=io_config.output_shapes,  # ignore kv_cache output shapes
         output_types=io_config.output_types,  # ignore kv_cache output types
         dynamic_axes=dynamic_axes,
+        dynamic_shapes=dynamic_shapes,
         kv_cache=kv_cache_config,
     )
 

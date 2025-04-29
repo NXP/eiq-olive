@@ -41,9 +41,6 @@ include_patterns = [
   '**/*.py',
   '**/*.pyi'
 ]
-exclude_patterns = [
-  'olive/engine/packaging/sample_code/**'
-]
 command = [
   'python',
   '-m',
@@ -70,7 +67,7 @@ include_patterns = [
   '**/*.py'
 ]
 exclude_patterns = [
-  'olive/engine/packaging/sample_code/**'
+  '**/hadamard_utils.py'
 ]
 command = [
   'python',
@@ -98,7 +95,7 @@ include_patterns = [
   '**/*.py'
 ]
 exclude_patterns = [
-  'olive/engine/packaging/sample_code/**'
+  '**/hadamard_utils.py'
 ]
 command = [
   'python',
@@ -121,43 +118,8 @@ init_command = [
 ]
 
 [[linter]]
-code = 'MYPY'
-include_patterns = [
-  '**/*.py',
-  '**/*.pyi'
-]
-exclude_patterns = [
-  'examples/pytorch/*.py',
-  'olive/engine/packaging/sample_code/**'
-]
-command = [
-  'python',
-  '-m',
-  'lintrunner_adapters',
-  'run',
-  'mypy_linter',
-  '--config=pyproject.toml',
-  '--show-notes',
-  '--show-disable',
-  '--',
-  '@{{PATHSFILE}}'
-]
-init_command = [
-  'python',
-  '-m',
-  'lintrunner_adapters',
-  'run',
-  'pip_init',
-  '--dry-run={{DRYRUN}}',
-  'mypy==1.0.0'
-]
-
-[[linter]]
 code = 'NOQA'
 include_patterns = ['**/*.py', '**/*.pyi']
-exclude_patterns = [
-  'olive/engine/packaging/sample_code/**'
-]
 command = [
   'python',
   '-m',
@@ -179,7 +141,7 @@ command = [
 code = 'SPACES'
 include_patterns = ['**']
 exclude_patterns = [
-  'olive/engine/packaging/sample_code/**'
+  '**/*.json'
 ]
 command = [
   'python',
@@ -205,7 +167,7 @@ exclude_patterns = [
   '.lintrunner.toml',
   '**/Makefile',
   '**/*.bat',
-  'olive/engine/packaging/sample_code/**'
+  '**/*.json'
 ]
 command = [
   'python',
@@ -252,7 +214,9 @@ init_command = [
 code = 'EDITORCONFIG-CHECKER'
 include_patterns = ['**']
 exclude_patterns = [
-  '**/*.ipynb'
+  '**/*.ipynb',
+  '**/*.json',
+  '**/Makefile'
 ]
 command = [
   'python',
@@ -285,5 +249,19 @@ command = [
   'run',
   'requirements_txt_linter',
   '--',
+  '@{{PATHSFILE}}'
+]
+
+[[linter]]
+code = "FORMAT-JSON"
+is_formatter = true
+include_patterns = ['**/*.json']
+exclude_patterns = ['**/vit_id2label.json']
+command = [
+  'python',
+  'scripts/format_json.py',
+  '--linter-mode',
+  '--indent=4',
+  '--max-line-length=120',
   '@{{PATHSFILE}}'
 ]

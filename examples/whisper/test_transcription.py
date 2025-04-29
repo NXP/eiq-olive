@@ -12,8 +12,7 @@ from pathlib import Path
 import onnxruntime as ort
 from prepare_whisper_configs import download_audio_test_data
 
-from olive.evaluator.olive_evaluator import OnnxEvaluator
-from olive.hardware import AcceleratorSpec
+from olive.common.utils import format_data
 from olive.model import ONNXModelHandler
 
 sys.path.append(str(Path(__file__).parent / "code"))
@@ -60,14 +59,14 @@ def main(raw_args=None):
         config = json.load(f)
 
     # get model information
-    model_name = config["input_model"]["config"]["hf_config"]["model_name"]
-    use_audio_decoder = config["passes"]["prepost"]["config"]["tool_command_args"]["use_audio_decoder"]
+    model_name = config["input_model"]["model_components"][0]["model_path"]
+    use_audio_decoder = config["passes"]["prepost"]["tool_command_args"]["use_audio_decoder"]
     # check if model is multilingual
-    multilingual = config["passes"]["insert_beam_search"]["config"].get("use_forced_decoder_ids", False)
+    multilingual = config["passes"]["insert_beam_search"].get("use_forced_decoder_ids", False)
     if not multilingual and not (args.language == "english" and args.task == "transcribe"):
         print("Model is not multilingual but custom language/task provided. Will ignore custom language/task.")
     # check if model supports predicting timestamps
-    timestamp_enabled = config["passes"]["insert_beam_search"]["config"].get("use_logits_processor", False)
+    timestamp_enabled = config["passes"]["insert_beam_search"].get("use_logits_processor", False)
     if args.predict_timestamps and not timestamp_enabled:
         print(
             "Model does not support predicting timestamps. Will ignore `--predict_timestamps`. Generate model with"
@@ -76,19 +75,13 @@ def main(raw_args=None):
         args.predict_timestamps = False
 
     # get device and ep
-    device = config["systems"]["local_system"]["config"]["accelerators"][0]["device"]
-    ep = config["systems"]["local_system"]["config"]["accelerators"][0]["execution_providers"][0]
-    accelerator_spec = AcceleratorSpec(accelerator_type=device, execution_provider=ep)
+    device = config["systems"]["local_system"]["accelerators"][0]["device"]
+    ep = config["systems"]["local_system"]["accelerators"][0]["execution_providers"][0]
 
     # load output model json
-    output_model_json_path = Path(config["engine"]["output_dir"])
-    output_model_json = {}
-    for model_json in output_model_json_path.glob(
-        f"**/{config['engine']['output_name']}_{accelerator_spec}_model.json"
-    ):
-        with model_json.open() as f:
-            output_model_json = json.load(f)
-        break
+    output_model_json_path = Path(config["output_dir"]) / "model_config.json"
+    with output_model_json_path.open() as f:
+        output_model_json = json.load(f)
 
     # load output model onnx
     olive_model = ONNXModelHandler(**output_model_json["config"])
@@ -119,9 +112,11 @@ def main(raw_args=None):
 
     # get output
     input_data, _ = dataset[0]
-    input_data = OnnxEvaluator.format_input(input_data, olive_model.io_config)
-    output = session.run(None, input_data)
-    return output[0][0]
+    input_data = format_data(input_data, olive_model.io_config)
+    # output is an list of numpy arrays, first element is the transcription 1Xnum_return_sequences
+    # [["transcription1", "transcription2"]]
+    output = olive_model.run_session(session, input_data)
+    return output[0][0][0]
 
 
 if __name__ == "__main__":

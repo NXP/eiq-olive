@@ -56,10 +56,7 @@ CLASSIFIERS = [
 ]
 
 long_description = (
-    "Olive is an easy-to-use hardware-aware model optimization tool that composes industry-leading techniques across"
-    " model compression, optimization, and compilation. Given a model and targeted hardware, Olive composes the best"
-    " suitable optimization techniques to output the most efficient model(s) for inferencing on cloud or edge, while"
-    " taking a set of constraints such as accuracy and latency into consideration."
+    "Olive: Simplify ML Model Finetuning, Conversion, Quantization, and Optimization for CPUs, GPUs and NPUs"
 )
 
 description = long_description.split(".", maxsplit=1)[0] + "."
@@ -82,8 +79,7 @@ setup(
     include_package_data=False,
     package_data={
         "olive": ["olive_config.json"],
-        "olive.auto_optimizer": ["config_template/*.yaml"],
-        "olive.engine.packaging": ["sample_code/*/*/*"],
+        "olive.auto_optimizer": ["config_template/*.yaml", "workflow_template/*.yaml"],
         "olive.platform_sdk.qualcomm": ["create_python_env.sh", "create_python_env.ps1", "copy_libcdsprpc.ps1"],
         "olive.systems.docker": ["Dockerfile*"],
         "olive.systems.python_environment": ["common_requirements.txt"],

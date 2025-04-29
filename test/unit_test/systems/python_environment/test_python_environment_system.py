@@ -11,8 +11,9 @@ from pathlib import Path
 from test.unit_test.utils import (
     get_glue_accuracy_metric,
     get_glue_latency_metric,
-    get_hf_model_with_past,
+    get_hf_model_config,
     get_onnx_model,
+    get_onnx_model_config,
     get_onnxconversion_pass,
 )
 from unittest.mock import MagicMock, patch
@@ -22,8 +23,8 @@ import pytest
 from olive.common.constants import OS
 from olive.common.utils import run_subprocess
 from olive.evaluator.metric_result import MetricResult, joint_metric_key
+from olive.evaluator.olive_evaluator import OliveEvaluatorConfig
 from olive.hardware import DEFAULT_CPU_ACCELERATOR
-from olive.model import ModelConfig
 from olive.systems.python_environment import PythonEnvironmentSystem
 from olive.systems.python_environment.evaluation_runner import main as evaluation_runner_main
 from olive.systems.python_environment.pass_runner import main as pass_runner_main
@@ -104,6 +105,9 @@ class TestPythonEnvironmentSystem:
         dummy_model_config = {"dummy_key": "dummy_value"}
         model_config.to_json.return_value = dummy_model_config
         metrics = [get_glue_accuracy_metric(), get_glue_latency_metric()]
+        metrics[0].sub_types[0].priority = 1
+        metrics[1].sub_types[0].priority = 2
+        evaluator_config = OliveEvaluatorConfig(metrics=metrics)
 
         # mock return value
         metrics_key = [
@@ -117,7 +121,7 @@ class TestPythonEnvironmentSystem:
         mock__run_command.return_value = mock_return_value
 
         # execute
-        res = self.system.evaluate_model(model_config, None, metrics, DEFAULT_CPU_ACCELERATOR)
+        res = self.system.evaluate_model(model_config, evaluator_config, DEFAULT_CPU_ACCELERATOR)
 
         # assert
         assert res[metrics_key[0]].value == 0.9
@@ -126,10 +130,9 @@ class TestPythonEnvironmentSystem:
             self.system.evaluation_runner_path,
             {
                 "model_config": dummy_model_config,
-                "metrics_config": [metric.to_json() for metric in metrics],
+                "evaluator_config": evaluator_config.to_json(),
                 "accelerator_config": DEFAULT_CPU_ACCELERATOR.to_json(),
             },
-            data_root=None,
             tempdir=tempfile.tempdir,
         )
 
@@ -148,13 +151,9 @@ class TestPythonEnvironmentSystem:
                 "dummy_param_2": "dummy_param_2_value",
             },
         }
-        full_config = {
-            "dummy_param_1": "dummy_param_1_value",
-            "dummy_param_2": "dummy_param_2_value2",
-        }
-        expected_pass_config = {"type": "DummyPass", "config": full_config}
+        dummy_config = dummy_pass_config["config"]
+        expected_pass_config = {"type": "DummyPass", "config": dummy_config}
         the_pass.to_json.return_value = dummy_pass_config
-        the_pass.serialize_config.return_value = full_config
 
         # mock return value
         mock_return_value = {"dummy_output_model_key": "dummy_output_model_value"}
@@ -166,7 +165,7 @@ class TestPythonEnvironmentSystem:
         dummy_output_model_path = "dummy_output_model_path"
 
         # execute
-        res = self.system.run_pass(the_pass, model_config, None, dummy_output_model_path)
+        res = self.system.run_pass(the_pass, model_config, dummy_output_model_path)
 
         # assert
         assert res == mock_output_model_config
@@ -174,22 +173,21 @@ class TestPythonEnvironmentSystem:
         mock__run_command.assert_called_once_with(
             self.system.pass_runner_path,
             {"model_config": dummy_model_config, "pass_config": expected_pass_config},
-            data_root=None,
             tempdir=tempfile.tempdir,
             output_model_path=dummy_output_model_path,
         )
 
-    @patch("olive.evaluator.olive_evaluator.OliveEvaluator.evaluate")
+    @patch("olive.evaluator.olive_evaluator._OliveEvaluator.evaluate")
     def test_evaluation_runner(self, mock_evaluate, tmp_path):
         # create model_config.json
-        model_config = ModelConfig.parse_obj(get_onnx_model().to_json()).to_json()
+        model_config = get_onnx_model_config().to_json()
         with (tmp_path / "model_config.json").open("w") as f:
             json.dump(model_config, f)
 
         # create metrics_config.json
-        metrics_config = [get_glue_accuracy_metric().to_json()]
-        with (tmp_path / "metrics_config.json").open("w") as f:
-            json.dump(metrics_config, f)
+        evaluator_config = OliveEvaluatorConfig(metrics=[get_glue_accuracy_metric()]).to_json()
+        with (tmp_path / "evaluator_config.json").open("w") as f:
+            json.dump(evaluator_config, f)
 
         # create accelerator_config.json
         accelerator_config = DEFAULT_CPU_ACCELERATOR.to_json()
@@ -208,8 +206,8 @@ class TestPythonEnvironmentSystem:
         args = [
             "--model_config",
             str(tmp_path / "model_config.json"),
-            "--metrics_config",
-            str(tmp_path / "metrics_config.json"),
+            "--evaluator_config",
+            str(tmp_path / "evaluator_config.json"),
             "--accelerator_config",
             str(tmp_path / "accelerator_config.json"),
             "--output_path",
@@ -225,15 +223,14 @@ class TestPythonEnvironmentSystem:
     @patch("olive.passes.onnx.conversion.OnnxConversion.run")
     def test_pass_runner(self, mock_conversion_run, tmp_path):
         # create model_config.json
-        model_config = ModelConfig.parse_obj(get_hf_model_with_past().to_json()).to_json()
+        model_config = get_hf_model_config().to_json()
         with (tmp_path / "model_config.json").open("w") as f:
             json.dump(model_config, f)
 
         # create pass_config.json
         the_pass = get_onnxconversion_pass()
-        config = the_pass.config_at_search_point({})
         pass_config = the_pass.to_json(check_object=True)
-        pass_config["config"].update(the_pass.serialize_config(config, check_object=True))
+
         with (tmp_path / "pass_config.json").open("w") as f:
             json.dump(pass_config, f)
 
