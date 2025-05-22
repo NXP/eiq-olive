@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from olive.constants import Framework, ModelFileFormat
 from olive.hardware.accelerator import Device
@@ -26,7 +26,7 @@ class TensorFlowModelHandler(OliveModelHandler):
             model_attributes=model_attributes,
         )
 
-    def load_model(self, rank: int = None):
+    def load_model(self, rank: int = None, cache_model: bool = True):
         raise NotImplementedError
 
     def prepare_session(
@@ -36,6 +36,14 @@ class TensorFlowModelHandler(OliveModelHandler):
         execution_providers: Union[str, List[str]] = None,
         rank: Optional[int] = None,
     ):
+        raise NotImplementedError
+
+    def run_session(
+        self,
+        session: Any = None,
+        inputs: Union[Dict[str, Any], List[Any], Tuple[Any, ...]] = None,
+        **kwargs: Dict[str, Any],
+    ) -> Any:
         raise NotImplementedError
 
 
@@ -64,4 +72,12 @@ class TFLiteModelHandler(OliveModelHandler):
         execution_providers: Union[str, List[str]] = None,
         rank: Optional[int] = None,
     ):
+        raise NotImplementedError
+
+    def run_session(
+        self,
+        session: Any = None,
+        inputs: Union[Dict[str, Any], List[Any], Tuple[Any, ...]] = None,
+        **kwargs: Dict[str, Any],
+    ) -> Any:
         raise NotImplementedError

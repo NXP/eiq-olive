@@ -14,7 +14,6 @@ import docker
 from docker.errors import BuildError, ContainerError
 
 import olive.systems.docker.utils as docker_utils
-from olive.cache import get_local_path_from_root
 from olive.common.config_utils import ParamCategory, validate_config
 from olive.evaluator.metric_result import MetricResult
 from olive.hardware import Device
@@ -25,6 +24,7 @@ from olive.systems.system_config import DockerTargetUserConfig
 
 if TYPE_CHECKING:
     from olive.evaluator.metric import Metric
+    from olive.evaluator.olive_evaluator import OliveEvaluatorConfig
     from olive.hardware.accelerator import AcceleratorSpec
     from olive.passes import Pass
 
@@ -103,32 +103,15 @@ class DockerSystem(OliveSystem):
                     _print_docker_logs(e.build_log, logging.ERROR)
                     raise
 
-    def run_pass(
-        self,
-        the_pass: "Pass",
-        model_config: "ModelConfig",
-        data_root: str,
-        output_model_path: str,
-        point: Optional[Dict[str, Any]] = None,
-    ) -> "ModelConfig":
-        """Run the pass on the model at a specific point in the search space."""
+    def run_pass(self, the_pass: "Pass", model_config: "ModelConfig", output_model_path: str) -> "ModelConfig":
+        """Run the pass on the model."""
         with tempfile.TemporaryDirectory() as tempdir:
-            return self._run_pass_container(Path(tempdir), the_pass, model_config, data_root, output_model_path, point)
+            return self._run_pass_container(Path(tempdir), the_pass, model_config, output_model_path)
 
     def _run_pass_container(
-        self,
-        workdir: Path,
-        the_pass: "Pass",
-        model_config: "ModelConfig",
-        data_root: str,
-        output_model_path: str,
-        point: Optional[Dict[str, Any]] = None,
+        self, workdir: Path, the_pass: "Pass", model_config: "ModelConfig", output_model_path: str
     ) -> "ModelConfig":
-        point = point or {}
-        config = the_pass.config_at_search_point(point)
-
         pass_config = the_pass.to_json(check_object=True)
-        pass_config["config"].update(the_pass.serialize_config(config, check_object=True))
 
         volumes_list = []
         runner_output_path = "runner_output"
@@ -150,9 +133,7 @@ class DockerSystem(OliveSystem):
         volumes_list.extend(model_mount_str_list)
 
         # data_dir or data_config
-        docker_data_paths, data_mount_str_list = self._create_data_mounts_for_pass(
-            data_root, container_root_path, the_pass
-        )
+        docker_data_paths, data_mount_str_list = self._create_data_mounts_for_pass(container_root_path, the_pass)
         volumes_list.extend(data_mount_str_list)
 
         # mount config file
@@ -196,12 +177,12 @@ class DockerSystem(OliveSystem):
                         continue
 
                     logger.debug("Resource %s path: %s", resource_name, resource_str)
-                    original_resouce_path = mount_model_to_local.get(resource_str)
-                    if original_resouce_path:
+                    original_resource_path = mount_model_to_local.get(resource_str)
+                    if original_resource_path:
                         # If the output model path is something like /olive-ws/model.onnx
                         # we need replace with the original model path
-                        output_model.config[resource_name] = original_resouce_path
-                        logger.info("Original resource path for %s is: %s", resource_str, original_resouce_path)
+                        output_model.config[resource_name] = original_resource_path
+                        logger.info("Original resource path for %s is: %s", resource_str, original_resource_path)
                         continue
 
                     # output_local_path should be something like: /tmp/tmpd1sjw9xa/runner_output
@@ -219,12 +200,12 @@ class DockerSystem(OliveSystem):
             return None
 
     def evaluate_model(
-        self, model_config: "ModelConfig", data_root: str, metrics: List["Metric"], accelerator: "AcceleratorSpec"
+        self, model_config: "ModelConfig", evaluator_config: "OliveEvaluatorConfig", accelerator: "AcceleratorSpec"
     ) -> Dict[str, Any]:
         container_root_path = Path("/olive-ws/")
         with tempfile.TemporaryDirectory() as tempdir:
             metric_json = self._run_eval_container(
-                tempdir, model_config, data_root, metrics, accelerator, container_root_path
+                tempdir, model_config, evaluator_config, accelerator, container_root_path
             )
             if metric_json.is_file():
                 with metric_json.open() as f:
@@ -238,8 +219,7 @@ class DockerSystem(OliveSystem):
         self,
         workdir,
         model_config: "ModelConfig",
-        data_root: str,
-        metrics: List["Metric"],
+        evaluator_config: "OliveEvaluatorConfig",
         accelerator: "AcceleratorSpec",
         container_root_path: Path,
     ):
@@ -262,12 +242,11 @@ class DockerSystem(OliveSystem):
         )
         volumes_list += model_mount_str_list
 
-        metrics_copy = copy.deepcopy(metrics)
+        metrics_copy = copy.deepcopy(evaluator_config.metrics)
         # mount metrics related external files
         volumes_list.extend(
             # the metrics_copy is modified when creating the volumes list
             docker_utils.create_metric_volumes_list(
-                data_root=data_root,
                 metrics=metrics_copy,
                 container_root_path=container_root_path,
             )
@@ -305,7 +284,7 @@ class DockerSystem(OliveSystem):
         for k, v in model_mounts.items():
             model_json["config"][k] = v
 
-        return {"metrics": [k.dict() for k in metrics], "model": model_json}
+        return {"metrics": [k.to_json(check_object=True) for k in metrics], "model": model_json}
 
     @staticmethod
     def _create_runner_config(
@@ -379,16 +358,16 @@ class DockerSystem(OliveSystem):
 
         return Path(output_local_path) / output_name
 
-    def _create_data_mounts_for_pass(self, data_root: str, container_root_path: Path, the_pass: "Pass"):
+    def _create_data_mounts_for_pass(self, container_root_path: Path, the_pass: "Pass"):
         mounts = {}
         mount_strs = []
+        config_dict = the_pass.config.dict()
         for param, _, category in the_pass.path_params:
-            param_val = the_pass.config.get(param)
+            param_val = config_dict.get(param)
             if category == ParamCategory.DATA and param_val:
-                data_dir = get_local_path_from_root(data_root, str(param_val))
                 mount = str(container_root_path / param)
                 mounts[param] = mount
-                mount_strs.append(f"{data_dir}:{mount}")
+                mount_strs.append(f"{param_val}:{mount}")
 
         return mounts, mount_strs
 

@@ -10,10 +10,11 @@ import warnings
 from pathlib import Path
 from typing import Dict
 
-import config
+import numpy as np
 import torch
 from diffusers import DiffusionPipeline
 from packaging import version
+from sd_utils import config
 from user_script import get_base_model_name
 
 from olive.common.utils import set_tempdir
@@ -53,6 +54,7 @@ def run_inference_loop(
     guidance_scale,
     strength: float,
     provider: str,
+    generator=None,
     image_callback=None,
     step_callback=None,
 ):
@@ -74,6 +76,7 @@ def run_inference_loop(
             height=image_size,
             width=image_size,
             guidance_scale=guidance_scale,
+            generator=generator,
             **kwargs,
         )
 
@@ -81,7 +84,16 @@ def run_inference_loop(
 
 
 def run_inference_gui(
-    pipeline, prompt, num_images, batch_size, image_size, num_inference_steps, guidance_scale, strength, provider
+    pipeline,
+    prompt,
+    num_images,
+    batch_size,
+    image_size,
+    num_inference_steps,
+    guidance_scale,
+    strength,
+    provider,
+    generator,
 ):
     import threading
     import tkinter as tk
@@ -115,6 +127,7 @@ def run_inference_gui(
                 guidance_scale,
                 strength,
                 provider,
+                generator,
                 image_completed,
                 update_progress_bar,
             ),
@@ -166,8 +179,9 @@ def run_inference_gui(
 
 def update_config_with_provider(config: Dict, provider: str):
     if provider == "dml":
-        # DirectML EP is the default, so no need to update config.
-        return config
+        from sd_utils.ort import update_dml_config
+
+        return update_dml_config(config)
     elif provider == "cuda":
         from sd_utils.ort import update_cuda_config
 
@@ -201,8 +215,9 @@ def optimize(
     shutil.rmtree(optimized_model_dir, ignore_errors=True)
 
     # The model_id and base_model_id are identical when optimizing a standard stable diffusion model like
-    # runwayml/stable-diffusion-v1-5. These variables are only different when optimizing a LoRA variant.
+    # CompVis/stable-diffusion-v1-4. These variables are only different when optimizing a LoRA variant.
     base_model_id = get_base_model_name(model_id)
+    print(f"\nModel {base_model_id}")
 
     # Load the entire PyTorch pipeline to ensure all models and their configurations are downloaded and cached.
     # This avoids an issue where the non-ONNX components (tokenizer, scheduler, and feature extractor) are not
@@ -234,12 +249,12 @@ def optimize(
         olive_config = update_config_with_provider(olive_config, provider)
 
         if submodel_name in ("unet", "text_encoder"):
-            olive_config["input_model"]["config"]["model_path"] = model_id
+            olive_config["input_model"]["model_path"] = model_id
         else:
             # Only the unet & text encoder are affected by LoRA, so it's better to use the base model ID for
             # other models: the Olive cache is based on the JSON config, and two LoRA variants with the same
             # base model ID should be able to reuse previously optimized copies.
-            olive_config["input_model"]["config"]["model_path"] = base_model_id
+            olive_config["input_model"]["model_path"] = base_model_id
 
         run_res = olive_run(olive_config)
 
@@ -269,7 +284,7 @@ def optimize(
 def parse_common_args(raw_args):
     parser = argparse.ArgumentParser("Common arguments")
 
-    parser.add_argument("--model_id", default="runwayml/stable-diffusion-v1-5", type=str)
+    parser.add_argument("--model_id", default="CompVis/stable-diffusion-v1-4", type=str)
     parser.add_argument(
         "--provider", default="dml", type=str, choices=["dml", "cuda", "openvino"], help="Execution provider to use"
     )
@@ -299,11 +314,19 @@ def parse_common_args(raw_args):
         "--strength",
         default=1.0,
         type=float,
-        help="Value between 0.0 and 1.0, that controls the amount of noise that is added to the input image. "
-        "Values that approach 1.0 enable lots of variations but will also produce images "
-        "that are not semantically consistent with the input.",
+        help=(
+            "Value between 0.0 and 1.0, that controls the amount of noise that is added to the input image. "
+            "Values that approach 1.0 enable lots of variations but will also produce images "
+            "that are not semantically consistent with the input."
+        ),
     )
     parser.add_argument("--image_size", default=512, type=int, help="Width and height of the images to generate")
+    parser.add_argument(
+        "--seed",
+        default=None,
+        type=int,
+        help="The seed to give to the generator to generate deterministic results.",
+    )
 
     return parser.parse_known_args(raw_args)
 
@@ -369,6 +392,8 @@ def main(raw_args=None):
                 validate_args(ort_args, common_args.provider)
             optimize(common_args.model_id, common_args.provider, unoptimized_model_dir, optimized_model_dir)
 
+    generator = None if common_args.seed is None else np.random.RandomState(seed=common_args.seed)
+
     if not common_args.optimize:
         model_dir = unoptimized_model_dir if common_args.test_unoptimized else optimized_model_dir
         with warnings.catch_warnings():
@@ -395,6 +420,7 @@ def main(raw_args=None):
                         common_args.image_size,
                         common_args.num_inference_steps,
                         common_args,
+                        generator=generator,
                     )
                 if ov_args.img_to_img_example:
                     from sd_utils.ov import run_ov_img_to_img_example
@@ -414,6 +440,7 @@ def main(raw_args=None):
                     guidance_scale,
                     common_args.strength,
                     provider=provider,
+                    generator=generator,
                 )
             else:
                 run_inference_loop(
@@ -426,6 +453,7 @@ def main(raw_args=None):
                     guidance_scale,
                     common_args.strength,
                     provider=provider,
+                    generator=generator,
                 )
 
 

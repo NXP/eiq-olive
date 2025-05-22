@@ -4,14 +4,14 @@
 # --------------------------------------------------------------------------
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Union
 
 from olive.common.config_utils import validate_config
 from olive.systems.common import AcceleratorConfig, SystemType
 
 if TYPE_CHECKING:
-    from olive.evaluator.metric import Metric
     from olive.evaluator.metric_result import MetricResult
+    from olive.evaluator.olive_evaluator import OliveEvaluatorConfig
     from olive.hardware.accelerator import AcceleratorSpec
     from olive.model import ModelConfig
     from olive.passes.olive_pass import Pass
@@ -41,20 +41,13 @@ class OliveSystem(ABC):
         self.hf_token = hf_token
 
     @abstractmethod
-    def run_pass(
-        self,
-        the_pass: "Pass",
-        model_config: "ModelConfig",
-        data_root: str,
-        output_model_path: str,
-        point: Optional[Dict[str, Any]] = None,
-    ) -> "ModelConfig":
+    def run_pass(self, the_pass: "Pass", model_config: "ModelConfig", output_model_path: str) -> "ModelConfig":
         """Run the pass on the model at a specific point in the search space."""
         raise NotImplementedError
 
     @abstractmethod
     def evaluate_model(
-        self, model_config: "ModelConfig", data_root: str, metrics: List["Metric"], accelerator: "AcceleratorSpec"
+        self, model_config: "ModelConfig", evaluator_config: "OliveEvaluatorConfig", accelerator: "AcceleratorSpec"
     ) -> "MetricResult":
         """Evaluate the model."""
         raise NotImplementedError

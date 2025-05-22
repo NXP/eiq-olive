@@ -15,11 +15,6 @@ Inference optimization workflows
 - AzureML compute: [With Optimum conversion and merging and ORT optimizations in AzureML](#optimizing-open-llama-model-with-azure-arc)
 - CPU: [With Optimum conversion and merging and ORT optimizations and Intel® Neural Compressor 4-bits weight-only quantization for optimized INT4 ONNX model](#compress-open-llama-model-with-intel®-neural-compressor-4-bits-weight-only-quantization)
 
-Fine-tune optimization workflows
-- [Using LoRA in PyTorch for model fine tune on a chatbot dataset](#fine-tune-llama-model-on-a-chatbot-dataset-using-qlora)
-- [Using LoRA/QLoRA/LoftQ in PyTorch for model fine tune on a code generation dataset](#fine-tune-open-llama-model-on-a-code-generation-dataset)
-- [Using QLoRA in ONNX Runtime Training for model fine tune](#fine-tune-openllama-model-using-qlora-with-onnx-runtime-training)
-
 Go to [How to run](#prerequisites)
 
 ## Inference Optimization Workflows
@@ -38,14 +33,8 @@ When you run the example config for other larger models, you may need
 1. change the `model_path` to the one you use in `open_llama_config.json` and `user_script.py`.
     ```json
     "input_model":{
-        "type": "OptimumModel",
-        "config": {
-            "model_path": "openlm-research/open_llama_3b", // to change based on the model you use
-            "model_components": ["decoder_model.onnx", "decoder_with_past_model.onnx"],
-            "hf_config": {
-                "model_class": "LlamaForCausalLM"
-            }
-        }
+        "type": "HfModel",
+        "model_path": "openlm-research/open_llama_3b", // to change based on the model you use
     }
     ```
     ```python
@@ -61,16 +50,14 @@ When you run the example config for other larger models, you may need
     ```json
     "optimize": {
         "type": "OrtTransformersOptimization",
-        "config": {
-            "model_type": "gpt2",
-            "float16": true,
-            "use_gpu": false,
-            "keep_io_types": true,
-            "num_heads": 32, // to change based on the model you use
-            "hidden_size": 4096, // to change based on the model you use
-            "optimization_options": {
-                "use_multi_head_attention": false
-            }
+        "model_type": "gpt2",
+        "float16": true,
+        "use_gpu": false,
+        "keep_io_types": true,
+        "num_heads": 32, // to change based on the model you use
+        "hidden_size": 4096, // to change based on the model you use
+        "optimization_options": {
+            "use_multi_head_attention": false
         }
     }
     ```
@@ -117,12 +104,10 @@ To compress model with 4-bits weight-only quantization, you may need
 ```json
 "quantization": {
     "type": "IncStaticQuantization",
-    "config": {
-        "user_script": "user_script.py",
-        "approach": "weight_only",
-        "weight_only_config":{
-            "algorithm": "RTN"
-        }
+    "user_script": "user_script.py",
+    "approach": "weight_only",
+    "weight_only_config":{
+        "algorithm": "RTN"
     }
 }
 ```
@@ -130,14 +115,10 @@ To compress model with 4-bits weight-only quantization, you may need
 ```json
 "quantization": {
     "type": "IncStaticQuantization",
-    "config": {
-        "user_script": "user_script.py",
-        "approach": "weight_only",
-        "weight_only_config":{
-            "algorithm": "GPTQ"
-        }
-    },
-    "dataloader_func": "calib_dataloader",
+    "user_script": "user_script.py",
+    "approach": "weight_only",
+    "data_config": "calib_data_config",
+    "weight_only_config": { "algorithm": "GPTQ" },
 }
 ```
 ```python
@@ -213,42 +194,6 @@ The following table shows the accuracy and perplexity results of Open Llama mode
 </table>
 
 > Note: The above results are obtained using `onnxruntime==1.16.3`, which supports the `MatMulNBits` op. Tested by Intel(R) Xeon(R) Platinum 8375c CPU @2.9GHz
-
-## Fine-tune Optimization Workflows
-### Fine-tune Llama Model on a chatbot dataset using QLoRA
-This workflow fine-tunes LLaMA model using [QLoRA](https://arxiv.org/abs/2305.14314). The output model is still the input transformers model along with a quantization config and
-LoRA adapters that were fine-tuned on the training dataset.
-
-The relevant config file is [llama_qlora.json](llama_qlora.json). It corresponds to the [guanaco 7b example in the original qlora implementation](https://github.com/artidoro/qlora/blob/main/scripts/finetune_guanaco_7b.sh).
-
-Requirements file: [requirements-lora.txt](requirements-lora.txt)
-
-### Fine-tune Open Llama Model on a code generation dataset
-- **With LoRA**. This workflow fine-tunes Open LLaMA model using [LoRA](https://arxiv.org/abs/2106.09685) to generate code given a prompt. The relevant config file is [open_llama_lora_tinycodes.json](open_llama_lora_tinycodes.json).
-- **With QLoRA**. This workflow fine-tunes Open LLaMA model using [QLoRA](https://arxiv.org/abs/2305.14314) to generate code given a prompt. The relevant config file is [open_llama_qlora_tinycodes.json](open_llama_qlora_tinycodes.json).
-- **With LoftQ**. This workflow fine-tunes Open LLaMA model using [LoftQ](https://arxiv.org/abs/2310.08659) to generate code given a prompt. The relevant config file is [open_llama_loftq_tinycodes.json](open_llama_loftq_tinycodes.json).
-
-Requirements file: [requirements-lora.txt](requirements-lora.txt)
-
-The code language is set to `Python` but can be changed to other languages by changing the `language` field in the config file.
-Supported languages are Python, TypeScript, JavaScript, Ruby, Julia, Rust, C++, Bash, Java, C#, and Go. Refer to the [dataset card](https://huggingface.co/datasets/nampdn-ai/tiny-codes) for more details on the dataset.
-
-Note: You must first request access to the [nampdn-ai/tiny-codes](https://huggingface.co/datasets/nampdn-ai/tiny-codes) datatset. Then login in to HuggingFace on your machine using `huggingface-cli login` or update `token` field in the config file with your HuggingFace token.
-
-### Fine-tune OpenLlama model using QLoRA with ONNX Runtime Training
-You can also train the model using [ONNX Runtime Training](https://techcommunity.microsoft.com/t5/ai-machine-learning-blog/onnx-runtime-training-technical-deep-dive/ba-p/1398310).
-The relevant config file is [open_llama_qlora_ort_tinycodes.json](open_llama_qlora_ort_tinycodes.json). Requirements file: [requirements-qlora-ort.txt](requirements-qlora-ort.txt)
-
-It also requires the latest version of onnxruntime-training:
-```bash
-python -m pip uninstall -y onnxruntime onnxruntime-gpu ort-nightly ort-nightly-gpu
-python -m pip install onnxruntime-training --pre --upgrade --index-url https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/ORT-Nightly/pypi/simple/
-```
-
-Configure `torch-ort`:
-```bash
-python -m torch_ort.configure
-```
 
 ## How to run
 ### Pip requirements

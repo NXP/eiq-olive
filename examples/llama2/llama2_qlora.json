@@ -1,185 +1,59 @@
 {
     "input_model": {
-        "type": "PyTorchModel",
-        "config": {
-            "io_config": {
-                "input_names": [
-                    "input_ids",
-                    "attention_mask",
-                    "position_ids"
-                ],
-                "output_names": [
-                    "logits"
-                ],
-                "input_shapes": [
-                    [
-                        2,
-                        8
-                    ],
-                    [
-                        2,
-                        40
-                    ],
-                    [
-                        2,
-                        8
-                    ]
-                ],
-                "input_types": [
-                    "int32",
-                    "int32",
-                    "int32"
-                ],
-                "dynamic_axes": {
-                    "input_ids": {
-                        "0": "batch_size",
-                        "1": "sequence_length"
-                    },
-                    "attention_mask": {
-                        "0": "batch_size",
-                        "1": "total_sequence_length"
-                    },
-                    "position_ids": {
-                        "0": "batch_size",
-                        "1": "sequence_length"
-                    }
-                },
-                "kv_cache": true
-            },
-            "hf_config": {
-                "model_name": "meta-llama/Llama-2-7b-hf",
-                "task": "text-generation",
-                "from_pretrained_args": {
-                    "_attn_implementation": "eager"
-                }
-            }
-        }
+        "type": "HfModel",
+        "load_kwargs": { "attn_implementation": "eager" },
+        "model_path": "meta-llama/Llama-2-7b-hf"
     },
     "systems": {
         "local_system": {
             "type": "LocalSystem",
-            "config": {
-                "accelerators": [
-                    {
-                        "device": "gpu",
-                        "execution_providers": [
-                            "CUDAExecutionProvider"
-                        ]
-                    }
-                ]
-            }
+            "accelerators": [ { "device": "gpu", "execution_providers": [ "CUDAExecutionProvider" ] } ]
         }
     },
     "data_configs": [
         {
-            "name": "tiny_codes_train",
+            "name": "train_data",
             "type": "HuggingfaceContainer",
-            "user_script": "user_script.py",
-            "load_dataset_config": {
-                "type": "load_tiny_code_dataset",
-                "params": {
-                    "data_name": "nampdn-ai/tiny-codes",
-                    "split": "train",
-                    "language": "Python",
-                    "token": true
-                }
-            },
-            "pre_process_data_config": {
-                "params": {
-                    "corpus_strategy": "join",
-                    "text_template": "### Question: {prompt} \n### Answer: {response}",
-                    "source_max_len": 1024
-                }
-            }
+            "load_dataset_config": { "data_name": "timdettmers/openassistant-guanaco", "split": "train[:4096]" }
+        },
+        {
+            "name": "eval_data",
+            "type": "HuggingfaceContainer",
+            "load_dataset_config": { "data_name": "timdettmers/openassistant-guanaco", "split": "train[4096:4224]" }
         }
     ],
-    "evaluators": {
-        "merged_evaluator": {
-            "metrics": [
-                {
-                    "name": "onnx_merged_latency",
-                    "type": "latency",
-                    "sub_types": [
-                        {
-                            "name": "avg",
-                            "priority": 1
-                        }
-                    ],
-                    "user_config": {
-                        "user_script": "user_script.py",
-                        "dataloader_func": "dataloader_func_for_merged",
-                        "func_kwargs": {
-                            "dataloader_func": {
-                                "model_id": "meta-llama/Llama-2-7b-hf",
-                                "past_seq_length": 0,
-                                "seq_length": 8,
-                                "max_seq_length": 2048
-                            }
-                        },
-                        "batch_size": 2,
-                        "io_bind": true
-                    }
-                }
-            ]
-        }
-    },
     "passes": {
-        "qlora": {
-            "type": "QLoRA",
-            "config": {
-                "lora_dropout": 0.1,
-                "train_data_config": "tiny_codes_train",
-                "eval_dataset_size": 1024,
-                "training_args": {
-                    "per_device_train_batch_size": 16,
-                    "per_device_eval_batch_size": 16,
-                    "gradient_accumulation_steps": 1,
-                    "max_steps": 1500,
-                    "logging_steps": 100,
-                    "save_steps": 100,
-                    "evaluation_strategy": "steps",
-                    "adam_beta2": 0.999,
-                    "max_grad_norm": 0.3,
-                    "load_best_model_at_end": true,
-                    "output_dir": "models/qlora-checkpoints"
-                }
-            }
+        "f": {
+            "train_data_config": "train_data",
+            "type": "qlora",
+            "torch_dtype": "bfloat16",
+            "training_args": {
+                "per_device_train_batch_size": 16,
+                "per_device_eval_batch_size": 16,
+                "max_steps": 150,
+                "logging_steps": 50.0
+            },
+            "r": 64,
+            "alpha": 16,
+            "eval_data_config": "eval_data"
         },
-        "conversion": {
+        "c": {
             "type": "OnnxConversion",
-            "config": {
-                "target_opset": 17,
-                "save_as_external_data": true,
-                "all_tensors_to_one_file": true,
-                "torch_dtype": "float32"
-            }
+            "target_opset": 17,
+            "torch_dtype": "float32",
+            "save_metadata_for_token_generation": true
         },
-        "transformers_optimization": {
+        "o": {
             "type": "OrtTransformersOptimization",
-            "config": {
-                "save_as_external_data": true,
-                "all_tensors_to_one_file": true,
-                "model_type": "gpt2",
-                "opt_level": 0,
-                "only_onnxruntime": false,
-                "keep_io_types": false,
-                "float16": true
-            }
+            "model_type": "gpt2",
+            "opt_level": 0,
+            "keep_io_types": false,
+            "float16": true
         },
-        "extract": {
-            "type": "ExtractAdapters",
-            "config": {
-                "save_as_external_data": true,
-                "all_tensors_to_one_file": true,
-                "make_inputs": true
-            }
-        }
+        "e": { "type": "ExtractAdapters" },
+        "m": { "type": "ModelBuilder", "metadata_only": true, "precision": "fp16" }
     },
-    "engine": {
-        "evaluator": "merged_evaluator",
-        "host": "local_system",
-        "target": "local_system",
-        "cache_dir": "cache",
-        "output_dir": "models/tiny-codes-qlora"
-    }
+    "host": "local_system",
+    "target": "local_system",
+    "output_dir": "models/llama2_qlora"
 }

@@ -15,9 +15,9 @@ pip install -r requirements.txt
 
 If you target GPU, pls install onnxruntime and onnxruntime-genai gpu packages.
 
-
+<!-- TODO(anyone): Remove this when genai doesn't require login -->
 ### For optimizing model from Hugging Face
-if you have not loged in Hugging Face account,
+if you have not logged in Hugging Face account,
 - Install Hugging Face CLI and login your Hugging Face account for model access
 ```
 huggingface-cli login
@@ -29,12 +29,27 @@ huggingface-cli login
 ```
 pip install olive-ai[azureml]
 ```
-if you have not loged in Azure account,
+if you have not logged in Azure account,
 - Install Azure Command-Line Interface (CLI) following [this link](https://learn.microsoft.com/en-us/cli/azure/)
 - Run `az login` to login your Azure account to allows Olive to access the model.
 
+# Usage with CLI
+You can use Olive CLI command to export, fine-tune, and optimize the model for a chosen hardware target. Few examples below:
 
-## Usage
+```
+# To auto-optimize the exported model
+olive auto-opt -m microsoft/Phi-3-mini-4k-instruct --precision int8
+
+# To quantize the model
+olive quantize -m microsoft/Phi-3-mini-4k-instruct --implementation gptq
+
+# To tune ONNX session params
+olive tune-session-params -m microsoft/Phi-3-mini-4k-instruct --io_bind --enable_cuda_graph
+```
+
+For more information on available options to individual CLI command run `olive <command-name> --help` on the command line.
+
+## Usage with custom configuration
 we will use the `phi3.py` script to fine-tune and optimize model for a chosen hardware target by running the following commands.
 
 ```
@@ -47,24 +62,27 @@ python phi3.py --target mobile --source AzureML
 
 python phi3.py --target mobile --inference --prompt "Write a story starting with once upon a time" --max_length 200
 
+# Fine-tune the model with lora method, optimize the model for cuda target and inference with ONNX Runtime Generate() API
 python phi3.py --target cuda --finetune_method lora --inference --prompt "Write a story starting with once upon a time" --max_length 200
-# qlora introduce the quantization into base model which is not supported by onnxruntime-genai as of now!
-python phi3.py --target cuda --finetune_method qlora
+
+# Fine-tune, quantize using AWQ and optimize the model for cpu target
+python phi3.py --target cpu --precision int4 --finetune_method lora --awq
+
+# Search and generate an optimized ONNX session tuning config
+python phi3.py --target cuda --precision fp16 --tune-session-params
 ```
 
-- `--target`: cpu, cuda, mobile, web
-- `--finetune_method`: optional. The method used for fine-tuning. Options: `qlora`, `lora`. Default is none. Note that onnxruntime-genai only supports `lora` method as of now.
-- `--precision`: optional, for data precision. fp32 or int4 (default) for cpu target; fp32, fp16, or int4 (default) for GPU target; int4 (default) for mobile or web.
-- `--source`: optional, for model path. HF or AzureML. HF(Hugging Face model) by default.
-- `--inference`: optional, for non-web models inference/validation.
-- `--prompt`: optional, the prompt text fed into the model. Take effect only when `--inference` is set.
-- `--max_length`: optional, the max length of the output from the model. Take effect only when `--inference` is set.
-
+Run the following to get more information about the script:
+```
+python phi3.py --help
+```
 
 This script includes
 - Generate the Olive configuration file for the chosen HW target
-- Fine-tune model by lora or qlora method with dataset of `nampdn-ai/tiny-codes`.
-- Generate optimized model with Olive based on the configuration file for the chosen HW target
+- (optional) Fine-tune model by lora or qlora method with dataset of `nampdn-ai/tiny-codes`.
+- (optional) Quantize the original or fine-tuned model using AWQ. If AWQ is not used, the model will be quantized using RTN if precision is int4.
+- Generate optimized onnx model with Olive based on the configuration file for the chosen HW target
+- Search and generate optimized ONNX session tuning config
 - (optional) Inference the optimized model with ONNX Runtime Generate() API with non-web target
 
 
@@ -73,8 +91,38 @@ If you have an Olive configuration file, you can also run the olive command for 
 olive run [--config CONFIGURATION_FILE]
 
 # Examples
-olive run --config phi3_mobile_int4.json
+olive run --config phi3_run_mobile_int4.json
 ```
+
+### Get access to fine-tuning dataset
+Get access to the following resources on Hugging Face Hub:
+- [nampdn-ai/tiny-codes](https://huggingface.co/nampdn-ai/tiny-codes)
+
+# Quantize Models with NVIDIA TensorRT Model Optimizer
+The **TensorRT Model Optimizer** is designed to bring advanced model compression techniques, including quantization, to Windows RTX PC systems. Engineered for Windows, it delivers rapid and efficient quantization through features such as local GPU calibration, reduced memory usage, and fast processing.
+The primary goal of TensorRT Model Optimizer is to produce optimized, ONNX-format models compatible with DirectML backends.
+## Setup
+Run the following commands to install necessary packages:
+```bash
+pip install olive-ai[nvmo]
+pip install onnxruntime-genai-directml>=0.4.0
+pip install onnxruntime-directml==1.20.0
+pip install -r requirements-nvmo-awq.txt
+```
+Install the CUDA version compatible with CuPy as specified in `requirements-nvmo-awq.txt`.
+## Validate Installation
+After setup, confirm the correct installation of the `modelopt` package by running:
+```bash
+python -c "from modelopt.onnx.quantization.int4 import quantize as quantize_int4"
+```
+## Quantization
+To perform quantization, use the configuration file `phi3_nvmo_ptq.json`. This config executes two passes: one for model building and one for quantization. Note that ModelOpt currently only supports quantizing models created with the `modelbuild` tool.
+```bash
+olive run --config phi3_nvmo_ptq.json
+```
+## Steps to Quantize Different LLM Models
+- **Locate and Update Configuration File:**
+   Open `phi3_nvmo_ptq.json` in a text editor. Update the `model_path` to point to the directory or repository of the model you want to quantize. Ensure that `tokenizer_dir` is set to the tokenizer directory for the new model.
 
 ## More Inference Examples
 - [Android chat APP with Phi-3 and ONNX Runtime Mobile](https://github.com/microsoft/onnxruntime-inference-examples/tree/main/mobile/examples/phi-3/android)

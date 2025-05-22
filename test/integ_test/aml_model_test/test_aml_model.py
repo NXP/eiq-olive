@@ -22,7 +22,7 @@ def test_aml_model_pass_run(tmp_path):
     workspace_config = get_olive_workspace_config()
     azureml_client_config = AzureMLClientConfig(**workspace_config)
     docker_config = AzureMLDockerConfig(
-        base_image="mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04",
+        base_image="mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu22.04",
         conda_file_path=conda_file_location,
     )
     aml_system = AzureMLSystem(
@@ -44,7 +44,7 @@ def test_aml_model_pass_run(tmp_path):
     }
     onnx_model_file = tmp_path / "model.onnx"
     onnx_conversion_pass = create_pass_from_dict(OnnxConversion, onnx_conversion_config)
-    onnx_model = aml_system.run_pass(onnx_conversion_pass, pytorch_model_config, None, onnx_model_file)
+    onnx_model = aml_system.run_pass(onnx_conversion_pass, pytorch_model_config, onnx_model_file)
     model_path = onnx_model.config["model_path"]
     if isinstance(model_path, ResourcePath):
         model_path = model_path.get_path()

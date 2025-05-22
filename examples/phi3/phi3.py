@@ -10,6 +10,7 @@ from pathlib import Path
 
 import onnxruntime_genai as og
 
+from olive.common.utils import unescaped_str
 from olive.workflows import run as olive_run
 
 # flake8: noqa: T201
@@ -25,16 +26,32 @@ TARGET_TO_EP = {
 }
 
 AML_MODEL_Path = {
-    "model_path": {
-        "type": "azureml_registry_model",
-        "config": {"registry_name": "azureml", "name": "Phi-3-mini-4k-instruct", "version": "7"},
-    },
-    "model_file_format": "PyTorch.MLflow",
+    "type": "azureml_registry_model",
+    "registry_name": "azureml",
+    "name": "Phi-3-mini-4k-instruct",
+    "version": "7",
 }
 
 
 def get_args(raw_args):
     parser = argparse.ArgumentParser(description="phi3 optimization")
+
+    parser.add_argument(
+        "--model_path",
+        type=str,
+        default="microsoft/Phi-3-mini-4k-instruct",
+        help="Path to the model to optimize. Can be a hf model id or local path",
+    )
+    parser.add_argument(
+        "--source",
+        type=str,
+        default="HF",
+        choices=["HF", "AzureML"],
+        help=(
+            "Choose from HF(default), AzureML. If AzureML, model_path is overridden with the Phi-3-mini-4k-instruct"
+            " from azureml model registry"
+        ),
+    )
 
     parser.add_argument(
         "--target",
@@ -49,16 +66,30 @@ def get_args(raw_args):
         type=str,
         default=None,
         choices=["qlora", "lora"],
-        help="Finetune method before onnxruntime optimization. "
-        "qlora finetuned model cannot be converted to onnx by model builder.",
+        help="Finetune method before onnxruntime optimization",
     )
+
+    quant_group = parser.add_mutually_exclusive_group()
+    quant_group.add_argument(
+        "--awq",
+        action="store_true",
+        help="Run AWQ on the base model or the finetuned model",
+    )
+    quant_group.add_argument(
+        "--tune-session-params",
+        action="store_true",
+        help="Tune onnx session params",
+    )
+
     parser.add_argument(
         "--precision",
         type=str,
         default="int4",
         choices=["fp32", "fp16", "int4"],
-        help="Choose from fp32 or int4(default) for cpu target; "
-        "fp32 or fp16 or int4(default) for gpu target; int4(default) for mobile or web",
+        help=(
+            "Choose from fp32 or int4(default) for cpu target; "
+            "fp32 or fp16 or int4(default) for gpu target; int4(default) for mobile or web"
+        ),
     )
     parser.add_argument(
         "--inference",
@@ -70,20 +101,30 @@ def get_args(raw_args):
         nargs="*",
         type=str,
         default=["Write a joke"],
-        help="The prompt text fed into the model. Not supported with Web target.",
+        help="The prompt text fed into the model. Only used with --inference",
+    )
+    parser.add_argument(
+        "--chat_template",
+        type=unescaped_str,
+        default=None,
+        help=(
+            "The chat template for the prompt. If not provided, will use default templates for base and finetuned"
+            " models. Only used with --inference"
+        ),
     )
     parser.add_argument(
         "--max_length",
         type=int,
         default=200,
-        help="Max length for generation. Not supported with Web target.",
+        help="Max length for generation. Only used with --inference",
     )
+
+    parser.add_argument("--output_dir", type=str, default="models/phi3", help="Output path for optimized model")
     parser.add_argument(
-        "--source",
+        "--cache_dir",
         type=str,
-        default="HF",
-        choices=["HF", "AzureML"],
-        help="Choose from HF(default), AzureML",
+        default="cache",
+        help="Path to cache directory",
     )
 
     return parser.parse_args(raw_args)
@@ -106,35 +147,55 @@ def main(raw_args=None):
 
     # Generate optimized model for specific target
     print("Generating optimized model for", args.target, "...\n")
-    footprints = olive_run(config_file)
-    if footprints:
-        print("\nOptimized model is generated...")
+    output_path = Path(args.output_dir)
+    with open(config_file) as f:
+        run_config = json.load(f)
+        run_config["output_dir"] = args.output_dir
+
+    olive_run(run_config)
 
     if args.inference:
-        if args.finetune_method == "qlora":
-            raise ValueError(
-                "qlora finetuned model cannot be converted to onnx "
-                "by model builder as of now. Please remove --inference flag"
+        if not args.chat_template:
+            args.chat_template = (
+                "### Question: {input} \n### Answer: "
+                if args.finetune_method
+                else "<|user|>\n{input}<|end|>\n<|assistant|>"
             )
+
         prompts = "Write a joke" if not args.prompt else "".join(args.prompt)
 
-        chat_template = "<|user|>\n{input}<|end|>\n<|assistant|>"
-        prompts = f"{chat_template.format(input=prompts)}"
+        prompts = f"{args.chat_template.format(input=prompts)}"
 
         max_length = 200 if not args.max_length else args.max_length
 
-        output_model_path = get_output_model_path(footprints)
-        genai_run(prompts, str(output_model_path), max_length)
+        genai_run(prompts, str(output_path / "model"), max_length)
 
 
-def get_finetune_passes():
-    with open("pass_configs/finetune.json") as f:
-        return json.load(f)
+def use_passes(template_json, *passes):
+    use_data_configs = set()
 
+    # remove unused passes
+    for key in list(template_json["passes"].keys()):
+        if key not in passes:
+            del template_json["passes"][key]
+            continue
+        for param, value in template_json["passes"][key].items():
+            if param.endswith("data_config"):
+                use_data_configs.add(value)
 
-def get_data_configs():
-    with open("pass_configs/data_configs.json") as f:
-        return json.load(f)
+    # remove unused data_configs
+    if use_data_configs:
+        template_json["data_configs"] = [
+            data_config for data_config in template_json["data_configs"] if data_config["name"] in use_data_configs
+        ]
+    else:
+        del template_json["data_configs"]
+
+    for pass_name in set(template_json["passes"].keys()):
+        if pass_name not in passes:
+            template_json["passes"].pop(pass_name, None)
+
+    return template_json
 
 
 def generate_config(args):
@@ -143,52 +204,60 @@ def generate_config(args):
     with open(json_file_template) as f:
         template_json = json.load(f)
 
-    # finetune
-    if args.finetune_method:
-        assert args.target == "cuda", "Finetune only supports cuda target"
-        finetune_passes = get_finetune_passes()
-        data_configs = get_data_configs()
-        template_json["data_configs"] = data_configs
-        template_json["passes"][args.finetune_method] = finetune_passes[args.finetune_method]
-        template_json["passes"]["merge_adapter_weights"] = {"type": "MergeAdapterWeights"}
+    config_prefix = "phi3_run_"
+
+    # use aml instance of model
     if args.source == "AzureML":
-        template_json["input_model"]["config"] = AML_MODEL_Path
+        template_json["input_model"]["model_path"] = AML_MODEL_Path
+    else:
+        template_json["input_model"]["model_path"] = args.model_path
+
+    # finetune
+    passes_to_use = []
+    if args.finetune_method:
+        # adapters will be fine-tuned and merged into the model
+        passes_to_use.extend([args.finetune_method, "merge_adapter_weights"])
+    if args.awq:
+        passes_to_use.append("awq")
+        if args.precision != "int4":
+            print("AWQ only supports int4 precision. Changing precision to int4")
+            args.precision = "int4"
+    passes_to_use.append("builder")
+
+    if args.tune_session_params:
+        passes_to_use.append("tune_session_params")
+        template_json["search_strategy"] = {"execution_order": "joint", "sampler": "sequential"}
+        template_json["evaluator"] = "common_evaluator"
+    else:
+        del template_json["evaluators"]
 
     target = str(args.target)
+    if target == "web":
+        # web doesn't have fp16 io
+        passes_to_use.append("fp32_logits")
+
+    # use the relevant passes
+    template_json = use_passes(template_json, *passes_to_use)
+
+    # set the accelerator
     device = "GPU" if target in ("cuda", "web") else "CPU"
-    execution_providers = [TARGET_TO_EP[target.lower()]]
-    template_json["systems"]["local_system"]["config"]["accelerators"] = [
-        {"device": device, "execution_providers": execution_providers}
+    template_json["systems"]["local_system"]["accelerators"] = [
+        {"device": device, "execution_providers": [TARGET_TO_EP[target.lower()]]}
     ]
 
-    model_builder = {
-        "type": "ModelBuilder",
-        "config": {"precision": args.precision},
-    }
-    if args.finetune_method is None or args.finetune_method == "lora":
-        template_json["passes"]["builder"] = model_builder
-
+    # set the precision
+    template_json["passes"]["builder"]["precision"] = args.precision
     if target == "mobile":
-        template_json["passes"]["builder"]["config"]["int4_accuracy_level"] = 4
+        template_json["passes"]["builder"]["int4_accuracy_level"] = 4
 
-    elif target == "web":
-        fl_type = {"type": "OnnxIOFloat16ToFloat32"}
-        template_json["passes"]["fp32_logits"] = fl_type
+    # set cache dir
+    template_json["cache_dir"] = args.cache_dir
 
-    new_json_file = f"phi3_{target.lower()}_{args.precision}.json"
+    new_json_file = f"{config_prefix}{target.lower()}_{args.precision}.json"
     with open(new_json_file, "w") as f:
         json.dump(template_json, f, indent=4)
 
     return new_json_file
-
-
-def get_output_model_path(footprints):
-    # only one model output in phi2 optimization
-    for footprint in footprints.values():
-        for model_id in footprint.nodes:
-            model_path = Path(footprint.get_model_path(model_id))
-            break
-    return model_path
 
 
 def genai_run(prompt, model_path, max_length):
@@ -218,8 +287,8 @@ def genai_run(prompt, model_path, max_length):
         "repetition_penalty": 1.0,
     }
     params.set_search_options(**search_options)
-    params.input_ids = input_tokens
     generator = og.Generator(model, params)
+    generator.append_tokens(input_tokens)
     print("Generator created")
 
     first = True
@@ -230,7 +299,6 @@ def genai_run(prompt, model_path, max_length):
 
     try:
         while not generator.is_done():
-            generator.compute_logits()
             generator.generate_next_token()
             if first:
                 first_token_timestamp = time.time()

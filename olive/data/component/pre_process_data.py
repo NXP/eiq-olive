@@ -7,17 +7,16 @@
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
+from olive.common.hf.utils import get_model_config, get_tokenizer
 from olive.data.component.dataset import BaseDataset
-from olive.data.component.text_generation import (
-    TextGenDatasetType,
-    text_gen_corpus_pre_process,
-    text_gen_pair_pre_process,
-)
+from olive.data.component.text_generation import text_gen_pre_process
 from olive.data.registry import Registry
 
 
+@Registry.register_pre_process()
 @Registry.register_default_pre_process()
-def pre_process(dataset):
+@Registry.register_pre_process("skip_pre_process")
+def pre_process(dataset, **kwargs):
     """Pre-process data.
 
     Args:
@@ -31,21 +30,23 @@ def pre_process(dataset):
     return dataset
 
 
-def _huggingface_pre_process_helper(dataset, model_name, input_cols, label_cols, map_func, **kwargs):
-    """Pre-process data.
+def _huggingface_pre_process_helper(dataset, map_func, max_samples, **kwargs):
+    """Apply a map function to the dataset.
 
     Args:
         dataset (object): Data to be pre-processed.
-        model_name (str): Name of the huggingface model.
-        input_cols (list): List of input columns.
-        label_cols (list): List of label columns.
         map_func (function): Function to be applied to the dataset.
+        max_samples (int): Max number of samples to use.
         **kwargs: Additional arguments.
 
     Returns:
         object: Pre-processed data.
 
     """
+    if max_samples is not None:
+        # select the data beforehand to avoid tokenizing the whole dataset
+        dataset = dataset.select(range(min(len(dataset), max_samples)))
+
     # output type is list
     tokenized_datasets = dataset.map(
         map_func,
@@ -58,7 +59,7 @@ def _huggingface_pre_process_helper(dataset, model_name, input_cols, label_cols,
 
 @Registry.register_pre_process()
 def huggingface_pre_process(
-    dataset, model_name, input_cols, label_cols, max_samples=None, trust_remote_code=None, **kwargs
+    dataset, model_name, input_cols, label_col="label", max_samples=None, trust_remote_code=None, **kwargs
 ):
     """Pre-process data.
 
@@ -66,7 +67,7 @@ def huggingface_pre_process(
         dataset (object): Data to be pre-processed, reserved for internal dataset assignment.
         model_name (str): Name of the huggingface model.
         input_cols (list): List of input columns.
-        label_cols (list): List of label columns.
+        label_col (str): Label column. Defaults to "label".
         max_samples (int, optional): Max number of samples to use. Defaults to None.
         trust_remote_code (bool, optional): Whether or not to allow for custom models defined on the Hub in their own
             modeling files. Defaults to None.
@@ -76,20 +77,18 @@ def huggingface_pre_process(
         object: Pre-processed data.
 
     """
-    from transformers import AutoConfig, AutoTokenizer
 
     def _tokenizer_and_align_labels(examples):
-        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=trust_remote_code)
+        tokenizer = get_tokenizer(model_name, trust_remote_code=trust_remote_code)
         tokenized_inputs = tokenizer(
-            *[examples[input_col] for input_col in input_cols],
+            *[examples[input_col] for input_col in input_cols if examples[input_col]],
             padding=kwargs.get("padding", True),
             truncation=kwargs.get("truncation", True),
             max_length=kwargs.get("max_length"),
             is_split_into_words=kwargs.get("is_split_into_words", False),
             add_special_tokens=kwargs.get("add_special_tokens", True),
         )
-        # TODO(trajep): support multiple label columns if needed
-        tokenized_inputs["label"] = examples[label_cols[0]]
+        tokenized_inputs["label"] = examples[label_col]
         # huggingface dataset api limit to return dict and arrow table
         return tokenized_inputs
 
@@ -98,25 +97,20 @@ def huggingface_pre_process(
     # align_labels -> align_labels_with_mapping
     # Also to support customized operation arguments from users
     if kwargs.pop("align_labels", False):
-        model_hf_config = AutoConfig.from_pretrained(
-            model_config_path or model_name, trust_remote_code=trust_remote_code
-        )
+        model_hf_config = get_model_config(model_config_path or model_name, trust_remote_code=trust_remote_code)
         if model_hf_config and model_hf_config.label2id:
-            dataset = dataset.align_labels_with_mapping(model_hf_config.label2id, label_cols[0])
+            dataset = dataset.align_labels_with_mapping(model_hf_config.label2id, label_col)
 
-    tokenized_datasets = _huggingface_pre_process_helper(
-        dataset, model_name, input_cols, label_cols, _tokenizer_and_align_labels, **kwargs
-    )
-    # label_cols is ["label"] since we added label_cols[0] as "label" to tokenized_inputs
-    return BaseDataset(tokenized_datasets, label_cols=["label"], max_samples=max_samples)
+    tokenized_datasets = _huggingface_pre_process_helper(dataset, _tokenizer_and_align_labels, max_samples, **kwargs)
+    # label_col is "label" since we added label_col as "label" to tokenized_inputs
+    return BaseDataset(tokenized_datasets, label_col="label", max_samples=max_samples)
 
 
 @Registry.register_pre_process()
 def ner_huggingface_preprocess(
-    dataset, model_name, input_cols, label_cols, max_samples=None, trust_remote_code=None, **kwargs
+    dataset, model_name, input_cols, label_col="label", max_samples=None, trust_remote_code=None, **kwargs
 ):
     """Pre-process data for ner task."""
-    from transformers import AutoTokenizer
 
     def _align_labels_with_tokens(labels, word_ids):
         new_labels = []
@@ -140,15 +134,15 @@ def ner_huggingface_preprocess(
         return new_labels
 
     def _tokenizer_and_align_labels(examples):
-        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=trust_remote_code)
+        tokenizer = get_tokenizer(model_name, trust_remote_code=trust_remote_code)
         tokenized_inputs = tokenizer(
-            *[examples[input_col] for input_col in input_cols],
+            *[examples[input_col] for input_col in input_cols if examples[input_col]],
             padding=kwargs.get("padding", True),
             truncation=kwargs.get("truncation", True),
             is_split_into_words=kwargs.get("is_split_into_words", True),
             add_special_tokens=kwargs.get("add_special_tokens", False),
         )
-        all_labels = examples[label_cols[0]]
+        all_labels = examples[label_col]
         new_labels = []
         for i, labels in enumerate(all_labels):
             word_ids = tokenized_inputs.word_ids(i)
@@ -157,51 +151,33 @@ def ner_huggingface_preprocess(
         tokenized_inputs["label"] = new_labels
         return tokenized_inputs
 
-    tokenized_datasets = _huggingface_pre_process_helper(
-        dataset, model_name, input_cols, label_cols, _tokenizer_and_align_labels, **kwargs
-    )
-    return BaseDataset(tokenized_datasets, label_cols=["label"], max_samples=max_samples)
+    tokenized_datasets = _huggingface_pre_process_helper(dataset, _tokenizer_and_align_labels, max_samples, **kwargs)
+    return BaseDataset(tokenized_datasets, label_col="label", max_samples=max_samples)
 
 
 @Registry.register_pre_process()
 def text_generation_huggingface_pre_process(
-    dataset,
-    model_name: str,
-    source_max_len: int,
-    dataset_type: TextGenDatasetType = TextGenDatasetType.CORPUS,
-    max_samples: Optional[int] = None,
-    trust_remote_code: Optional[bool] = None,
-    **kwargs
+    dataset, model_name: str, trust_remote_code: Optional[bool] = None, **kwargs
 ):
     """Pre-process data for text generation task.
 
     Args:
         dataset (object): Data to be pre-processed, reserved for internal dataset assignment.
         model_name (str): Name of the huggingface model.
-        source_max_len (int): Max length of source sequence. For corpus, this is the max length of each sequence.
-            For pair, this is the max length of the input sequence.
-        dataset_type (TextGenDatasetType): Type of the dataset - 'corpus' or 'pair'. Defaults to 'corpus'.
-        max_samples (int, optional): Max number of samples to use. Defaults to None.
         trust_remote_code (bool, optional): Whether or not to allow for custom models defined on the Hub in their own
             modeling files. Defaults to None.
         **kwargs: Additional arguments.
             The common arguments are the fields in olive.data.component.text_generation.TextGenParams.
-            'corpus' arguments are the fields in olive.data.component.text_generation.TextGenCorpusParams.
-            'pair' arguments are the fields in olive.data.component.text_generation.TextGenPairParams.
-            Note: the TextGenCorpusParams and TextGenPairParams subclasses already include the common arguments.
 
     """
-    from transformers import AutoTokenizer
-
     all_kwargs = deepcopy(kwargs)
-    all_kwargs.update({"max_samples": max_samples, "source_max_len": source_max_len})
+    # task is not used in the pre-process function. Will pop it so that the config validation doesn't warn about
+    # unused kwargs
+    all_kwargs.pop("task", None)
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=trust_remote_code)
+    tokenizer = get_tokenizer(model_name, trust_remote_code=trust_remote_code)
 
-    if dataset_type == TextGenDatasetType.CORPUS:
-        return text_gen_corpus_pre_process(dataset, tokenizer, all_kwargs)
-    else:
-        return text_gen_pair_pre_process(dataset, tokenizer, all_kwargs)
+    return text_gen_pre_process(dataset, tokenizer, all_kwargs)
 
 
 @Registry.register_pre_process()
@@ -209,7 +185,7 @@ def audio_classification_pre_process(
     dataset,
     model_name: str,
     input_cols: List,
-    label_cols: List,
+    label_col: str = "label",
     max_samples: Optional[int] = None,
     trust_remote_code: Optional[bool] = None,
     feature_extractor_args: Optional[Dict[str, Any]] = None,
@@ -221,7 +197,7 @@ def audio_classification_pre_process(
         dataset (object): Data to be pre-processed, reserved for internal dataset assignment.
         model_name (str): Name of the huggingface model.
         input_cols (list): List of input columns.
-        label_cols (list): List of label columns.
+        label_col (str): Label column. Defaults to "label".
         max_samples (int, optional): Max number of samples to use. Defaults to None.
         trust_remote_code (bool, optional): Whether or not to allow for custom models defined on the Hub in their own
             modeling files. Defaults to None.
@@ -235,17 +211,17 @@ def audio_classification_pre_process(
 
     """
     from datasets import Audio
-    from transformers import AutoConfig, AutoFeatureExtractor
+    from transformers import AutoFeatureExtractor
 
     assert len(input_cols) == 1, "Only one input column is supported for audio classification task."
 
     # align labels with model configs
-    model_config = AutoConfig.from_pretrained(model_name, trust_remote_code=trust_remote_code)
-    labels_to_filter = kwargs.get("labels_to_filter", None) or []
+    model_config = get_model_config(model_name, trust_remote_code=trust_remote_code)
+    labels_to_filter = kwargs.get("labels_to_filter") or []
     dataset = dataset.filter(
-        lambda x: x not in dataset.features["label"].str2int(labels_to_filter), input_columns=label_cols[0]
+        lambda x: x not in dataset.features["label"].str2int(labels_to_filter), input_columns=[label_col]
     )
-    dataset = dataset.align_labels_with_mapping(model_config.label2id, label_cols[0])
+    dataset = dataset.align_labels_with_mapping(model_config.label2id, label_col)
 
     fe_args = feature_extractor_args or {}
     fea_extractor = AutoFeatureExtractor.from_pretrained(model_name, trust_remote_code=trust_remote_code, **fe_args)
@@ -263,11 +239,9 @@ def audio_classification_pre_process(
             return_attention_mask=True,
         )
 
-        tokenized_inputs["label"] = examples[label_cols[0]]
+        tokenized_inputs["label"] = examples[label_col]
 
         return tokenized_inputs
 
-    tokenized_datasets = _huggingface_pre_process_helper(
-        dataset, model_name, input_cols, label_cols, _tokenizer_and_align_labels, **kwargs
-    )
-    return BaseDataset(tokenized_datasets, label_cols=label_cols, max_samples=max_samples)
+    tokenized_datasets = _huggingface_pre_process_helper(dataset, _tokenizer_and_align_labels, max_samples, **kwargs)
+    return BaseDataset(tokenized_datasets, label_col="label", max_samples=max_samples)

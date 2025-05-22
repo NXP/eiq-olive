@@ -2,20 +2,22 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-from enum import Enum
 from typing import Optional, Union
 
-from olive.common.config_utils import ConfigBase, validate_config
+from olive.common.config_utils import CaseInsensitiveEnum, ConfigBase, NestedConfig, validate_config
+from olive.common.constants import BASE_IMAGE
 from olive.common.pydantic_v1 import validator
+from olive.common.utils import StrEnumBase
 
 
-class PackagingType(str, Enum):
+class PackagingType(CaseInsensitiveEnum):
     """Output Artifacts type."""
 
     Zipfile = "Zipfile"
     AzureMLModels = "AzureMLModels"
     AzureMLData = "AzureMLData"
     AzureMLDeployment = "AzureMLDeployment"
+    Dockerfile = "Dockerfile"
 
 
 class CommonPackagingConfig(ConfigBase):
@@ -36,7 +38,12 @@ class AzureMLModelsPackagingConfig(CommonPackagingConfig):
     description: Optional[str] = None
 
 
-class InferencingServerType(str, Enum):
+class DockerfilePackagingConfig(CommonPackagingConfig):
+    base_image: str = BASE_IMAGE
+    requirements_file: Optional[str] = None
+
+
+class InferencingServerType(StrEnumBase):
     AzureMLOnline = "AzureMLOnline"
     AzureMLBatch = "AzureMLBatch"
 
@@ -47,7 +54,7 @@ class InferenceServerConfig(ConfigBase):
     scoring_script: str
 
 
-class AzureMLModelModeType(str, Enum):
+class AzureMLModelModeType(StrEnumBase):
     download = "download"
     copy = "copy"
 
@@ -89,17 +96,17 @@ _type_to_config = {
     PackagingType.AzureMLModels: AzureMLModelsPackagingConfig,
     PackagingType.AzureMLData: AzureMLDataPackagingConfig,
     PackagingType.AzureMLDeployment: AzureMLDeploymentPackagingConfig,
+    PackagingType.Dockerfile: DockerfilePackagingConfig,
 }
 
 
-class PackagingConfig(ConfigBase):
+class PackagingConfig(NestedConfig):
     """Olive output artifacts generation config."""
 
     type: PackagingType = PackagingType.Zipfile
     name: str = "OutputModels"
     config: CommonPackagingConfig = None
     include_runtime_packages: bool = True
-    include_sample_code: bool = True
 
     @validator("config", pre=True, always=True)
     def _validate_config(cls, v, values):

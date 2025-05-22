@@ -13,6 +13,7 @@ repos:
     hooks:
       - id: black
         name: Format code
+        exclude: "hadamard_utils.py"
   - repo: https://github.com/pycqa/isort
     rev: 5.11.5
     hooks:
@@ -22,10 +23,21 @@ repos:
     rev: v0.3.1
     hooks:
       - id: absolufy-imports
-        exclude: examples/directml/llm/chat_app/
+        exclude: examples/
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
-    rev: v0.4.5
+    rev: v0.6.0
     hooks:
       - id: ruff
         args: [ --fix ]
+  - repo: local
+    hooks:
+      - id: format-json
+        name: Format JSON
+        language: python
+        entry: python scripts/format_json.py
+        files: \.(json)$
+        args: [
+          '--indent=4',
+          '--max-line-length=120'
+        ]

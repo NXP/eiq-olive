@@ -8,11 +8,12 @@ from unittest.mock import MagicMock
 import pytest
 import torch
 
-import olive.passes.pytorch.sparsegpt_utils as sparsegpt_utils
+from olive.common.hf.wrapper import ModelWrapper
 from olive.common.utils import get_attr
 from olive.data.template import huggingface_data_config_template
-from olive.model import PyTorchModelHandler
+from olive.model import HfModelHandler
 from olive.passes.olive_pass import create_pass_from_dict
+from olive.passes.pytorch.sparsegpt_utils import get_layer_submodules
 from olive.passes.pytorch.torch_trt_conversion import TorchTRTConversion
 
 # pylint: disable=abstract-method
@@ -45,24 +46,31 @@ def test_torch_trt_conversion_success(tmp_path):
     # setup
     model_name = "hf-internal-testing/tiny-random-OPTForCausalLM"
     task = "text-generation"
-    model_type = "opt"
-    input_model = PyTorchModelHandler(hf_config={"model_name": model_name, "task": task})
+    input_model = HfModelHandler(model_path=model_name, task=task)
     # torch.nn.Linear submodules per layer in the original model
     original_submodules = list(
-        sparsegpt_utils.get_layer_submodules(
-            sparsegpt_utils.get_layers(input_model.load_model(), model_type)[0], submodule_types=[torch.nn.Linear]
+        get_layer_submodules(
+            ModelWrapper.from_model(input_model.load_model()).get_layers(False)[0], submodule_types=[torch.nn.Linear]
         ).keys()
     )
 
     dataset = {
-        "load_dataset_config": {"params": {"data_name": "ptb_text_only", "subset": "penn_treebank", "split": "train"}},
+        "load_dataset_config": {
+            "params": {
+                "data_name": "ptb_text_only",
+                "subset": "penn_treebank",
+                "split": "train",
+                "trust_remote_code": True,
+            }
+        },
         "pre_process_data_config": {
             "params": {
                 "text_cols": ["sentence"],
-                "corpus_strategy": "join-random",
-                "source_max_len": 100,
+                "strategy": "join-random",
+                "max_seq_len": 100,
                 "max_samples": 1,
                 "random_seed": 42,
+                "trust_remote_code": True,
             }
         },
     }
@@ -75,12 +83,10 @@ def test_torch_trt_conversion_success(tmp_path):
     output_folder = str(tmp_path / "sparse")
 
     # execute
-    model = p.run(input_model, None, output_folder)
+    model = p.run(input_model, output_folder)
 
     # assert
-    pytorch_model = model.load_model()
-    layers = sparsegpt_utils.get_layers(pytorch_model, model_type)
-    for layer in layers:
+    for layer in ModelWrapper.from_model(model.load_model()).get_layers(False):
         for submodule_name in original_submodules:
             # check that the submodule is replaced with MockTRTLinearLayer
             assert isinstance(get_attr(layer, submodule_name), MockTRTLinearLayer)

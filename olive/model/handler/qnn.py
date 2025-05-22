@@ -74,7 +74,7 @@ class QNNModelHandler(OliveModelHandler):
             raise ValueError(f"Unsupported model file format {self.model_file_format}")
         return model_path
 
-    def load_model(self, rank: int = None):
+    def load_model(self, rank: int = None, cache_model: bool = True):
         raise NotImplementedError("QNNModelHandler does not support load_model")
 
     def prepare_session(
@@ -93,3 +93,11 @@ class QNNModelHandler(OliveModelHandler):
         inference_settings["backend"] = model_attributes.get("backend") or inference_settings.get("backend")
         session_options = QNNSessionOptions(**inference_settings)
         return QNNInferenceSession(self.model_path, self.io_config, session_options)
+
+    def run_session(
+        self,
+        session: Any = None,
+        inputs: Union[Dict[str, Any], List[Any], Tuple[Any, ...]] = None,
+        **kwargs: Dict[str, Any],
+    ) -> Any:
+        return session(inputs, **kwargs)

@@ -5,6 +5,7 @@
 import logging
 import platform
 from pathlib import Path
+from test.multiple_ep.utils import get_directories
 
 import pytest
 
@@ -35,6 +36,7 @@ class TestOliveManagedDockerSystem:
                 is_dev=True,
             ),
         )
+        get_directories()
         download_models()
         self.input_model_config = ModelConfig.parse_obj(
             {"type": "ONNXModel", "config": {"model_path": get_onnx_model()}}
@@ -57,5 +59,5 @@ class TestOliveManagedDockerSystem:
         )
         assert cpu_res.metrics.value.__root__
         assert openvino_res.metrics.value.__root__
-        assert "Creating olive_managed_env SystemType.Docker with EP CPUExecutionProvider" in caplog.text
-        assert "Creating olive_managed_env SystemType.Docker with EP OpenVINOExecutionProvider" in caplog.text
+        assert "Creating olive_managed_env Docker with EP CPUExecutionProvider" in caplog.text
+        assert "Creating olive_managed_env Docker with EP OpenVINOExecutionProvider" in caplog.text

@@ -7,31 +7,30 @@ import logging
 import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Callable, ClassVar, Dict, Optional, Tuple, Type, Union, get_args
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Tuple, Type, Union, get_args
 
-from olive.common.config_utils import ConfigBase, ParamCategory, validate_config
-from olive.common.pydantic_v1 import Field
+from olive.common.config_utils import ParamCategory, validate_config
+from olive.common.pydantic_v1 import BaseModel, ValidationError, create_model
 from olive.common.user_module_loader import UserModuleLoader
 from olive.data.config import DataConfig
 from olive.hardware import DEFAULT_CPU_ACCELERATOR, AcceleratorSpec
 from olive.model import CompositeModelHandler, DistributedOnnxModelHandler, OliveModelHandler, ONNXModelHandler
 from olive.passes.pass_config import (
-    PassConfigBase,
+    AbstractPassConfig,
+    BasePassConfig,
     PassConfigParam,
     PassParamDefault,
     create_config_class,
-    get_user_script_config,
 )
 from olive.resource_path import ResourcePath
-from olive.strategy.search_parameter import (
+from olive.search.search_parameter import (
     Categorical,
     Conditional,
     ConditionalDefault,
     SearchParameter,
     SpecialParamValue,
 )
-from olive.strategy.search_space import SearchSpace
-from olive.strategy.utils import cyclic_search_space, order_search_parameters
+from olive.search.utils import cyclic_search_space, order_search_parameters
 
 logger = logging.getLogger(__name__)
 
@@ -45,14 +44,9 @@ class Pass(ABC):
     """
 
     registry: ClassVar[Dict[str, Type["Pass"]]] = {}
-    # True if pass configuration requires user script for non-local host support
-    _requires_user_script: bool = False
     # True if the pass processes a composite model at once. Otherwise, the components of the
     # composite model will be processed individually.
     _accepts_composite_model: bool = False
-
-    # Flag indicate whether the pass need to be run in target instead of host
-    run_on_target: bool = False
 
     @classmethod
     def __init_subclass__(cls, **kwargs) -> None:
@@ -64,8 +58,7 @@ class Pass(ABC):
     def __init__(
         self,
         accelerator_spec: AcceleratorSpec,
-        config: Dict[str, Any],
-        disable_search: Optional[bool] = False,
+        config: Type[BasePassConfig],
         host_device=None,
     ):
         """Initialize the pass.
@@ -73,38 +66,26 @@ class Pass(ABC):
         :param accelerator_spec: the accelerator spec for the pass.
         :type accelerator_spec: AcceleratorSpec
         :param config: the configuration representing search space.
-        :type config: Dict[str, Any]
-        :param disable_search: whether to disable search.
-        :type disable_search: Optional[bool]
+        :type config: Type[BasePassConfig]
         :param host_device: the host device for the pass.
         :type host_device: Optional[str]
         """
         assert accelerator_spec is not None, "Please specify the accelerator spec for the pass."
         assert config is not None, "Please specify the configuration for the pass."
 
-        config_class, default_config = self.get_config_class(accelerator_spec, disable_search)
-
+        self.config = config
         self.accelerator_spec = accelerator_spec
         self.host_device = host_device
 
-        self._config_class = config_class
-        self.config = config
-        if self._requires_user_script:
-            self._user_module_loader = UserModuleLoader(self.config["user_script"], self.config["script_dir"])
-
-        self._fixed_params = {}
-        self.search_space = {}
-        for k, v in self.config.items():
-            if isinstance(v, SearchParameter):
-                self.search_space[k] = v
-            else:
-                self._fixed_params[k] = v
+        if hasattr(self.config, "user_script") and hasattr(self.config, "script_dir"):
+            self._user_module_loader = UserModuleLoader(self.config.user_script, self.config.script_dir)
 
         # Params that are paths [(param_name, required)]
-        self.path_params = []
-        for param, param_config in default_config.items():
-            if param_config.category in (ParamCategory.PATH, ParamCategory.DATA):
-                self.path_params.append((param, param_config.required, param_config.category))
+        self.path_params = [
+            (param, param_config.required, param_config.category)
+            for param, param_config in self.default_config(accelerator_spec).items()
+            if param_config.category in (ParamCategory.PATH, ParamCategory.DATA)
+        ]
 
         self._initialized = False
 
@@ -118,22 +99,78 @@ class Pass(ABC):
         return True
 
     @classmethod
-    def generate_search_space(
+    def get_config_params(
         cls,
         accelerator_spec: AcceleratorSpec,
-        config: Optional[Union[Dict[str, Any], PassConfigBase]] = None,
+        config: Optional[Dict[str, Any]] = None,
         disable_search: Optional[bool] = False,
-    ) -> Tuple[Type[PassConfigBase], Dict[str, Any]]:
+    ) -> Tuple[Type[BasePassConfig], Dict[str, Any], Dict[str, SearchParameter]]:
         """Generate search space for the pass."""
         assert accelerator_spec is not None, "Please specify the accelerator spec for the pass"
+        config = config or {}
 
         # Get the config class with default value or default search value
         config_class, default_config = cls.get_config_class(accelerator_spec, disable_search)
+
+        if not disable_search:
+            # Replace user-provided values with Categorical if user intended to search
+            config = cls._identify_search_values(config, default_config)
+
         # Generate the search space by using both default value and default search value and user provided config
         config = validate_config(config, config_class)
-
         config = cls._resolve_config(config, default_config)
-        return cls._init_fixed_and_search_params(config, default_config)
+        return config_class, *cls._init_fixed_and_search_params(config, default_config)
+
+    @classmethod
+    def generate_config(
+        cls,
+        accelerator_spec: AcceleratorSpec,
+        config: Optional[Dict[str, Any]] = None,
+        point: Optional[Dict[str, Any]] = None,
+        disable_search: Optional[bool] = False,
+    ) -> Type[BasePassConfig]:
+        """Get the configuration for the pass at a specific point in the search space."""
+        assert accelerator_spec is not None, "Please specify the accelerator spec for the pass"
+
+        point = point or {}
+        config_class, fixed_values, search_params = cls.get_config_params(accelerator_spec, config, disable_search)
+        assert (
+            set(point.keys()).intersection(set(search_params.keys())) == point.keys()
+        ), "Search point is not in the search space."
+        return config_class.parse_obj({**fixed_values, **search_params, **point})
+
+    @classmethod
+    def _identify_search_values(
+        cls,
+        config: Dict[str, Any],
+        default_config: Dict[str, PassConfigParam],
+    ):
+        """Conditionally, replace user provided search values with Categorical."""
+        for name, param in default_config.items():
+            if param.search_defaults and name in config:
+                value = config[name]
+
+                # If the user provided a non-empty list, validate if "type of
+                # each elements" in the list is the same as the "param's expected type".
+                # If successful, treat it as a searchable value i.e. turn it into a Categorical.
+                if isinstance(value, list) and len(value) > 0:
+                    dummy_values_config = {name: (List[param.type_], None)}
+                    dummy_values_model = create_model(
+                        f"SearchableParamConfig_{name}_values", **dummy_values_config, __base__=BaseModel
+                    )
+
+                    try:
+                        validate_config({name: value}, dummy_values_model)
+                        config[name] = Categorical(value)
+                        continue
+                    except ValidationError:
+                        # Expected in certain cases and intentionally ignored!!
+                        pass
+
+                # If not, leave the value alone so that the default validation
+                # would report an appropriate error.
+
+        return config
 
     @classmethod
     def get_config_class(cls, accelerator_spec: AcceleratorSpec, disable_search: Optional[bool] = False):
@@ -145,12 +182,7 @@ class Pass(ABC):
     @classmethod
     def default_config(cls, accelerator_spec: AcceleratorSpec) -> Dict[str, PassConfigParam]:
         """Get the default configuration for the pass."""
-        config = {}
-        if cls._requires_user_script:
-            # add user script related parameters
-            config.update(get_user_script_config())
-        # add all other parameters
-        config.update(cls._default_config(accelerator_spec))
+        config = cls._default_config(accelerator_spec)
         # validate that all parameters ending with data_config are of type DataConfig, Union[DataConfig, dict], ...
         # this requirement is on the pass developer but we can only check it here
         for param, param_config in config.items():
@@ -161,27 +193,17 @@ class Pass(ABC):
                 ), f"{param} ending with data_config must be of type DataConfig."
         return config
 
-    def config_at_search_point(self, point: Dict[str, Any]) -> Dict[str, Any]:
-        """Get the configuration for the pass at a specific point in the search space."""
-        assert set(point.keys()) == set(self.search_space.keys()), "Search point is not in the search space."
-        config = self._fixed_params.copy()
-        for key, value in point.items():
-            config[key] = value
-        return self._config_class(**config).dict()
-
-    def validate_search_point(
-        self, search_point: Dict[str, Any], accelerator_spec: AcceleratorSpec, with_fixed_value: bool = False
+    @classmethod
+    def validate_config(
+        cls,
+        config: Type[BasePassConfig],
+        accelerator_spec: AcceleratorSpec,
     ) -> bool:
-        """Validate the search point for the pass."""
+        """Validate the input config for the pass."""
         return True
 
-    def run(
-        self, model: OliveModelHandler, data_root: str, output_model_path: str, point: Optional[Dict[str, Any]] = None
-    ) -> OliveModelHandler:
+    def run(self, model: OliveModelHandler, output_model_path: str) -> OliveModelHandler:
         """Run the pass on the model at a specific point in the search space."""
-        point = point or {}
-        config = self.config_at_search_point(point)
-
         if not self._initialized:
             self._initialize()
             self._initialized = True
@@ -191,7 +213,7 @@ class Pass(ABC):
             for rank in range(model.num_ranks):
                 input_ranked_model = model.load_model(rank)
                 ranked_output_path = Path(output_model_path).with_suffix("") / model.ranked_model_name(rank)
-                self._run_for_config(input_ranked_model, data_root, config, str(ranked_output_path))
+                self._run_for_config(input_ranked_model, self.config, str(ranked_output_path))
 
             # ranked model don't have their own model_attributes, they are just part of the distributed model
             # which has the model_attributes
@@ -204,14 +226,11 @@ class Pass(ABC):
             )
             Pass._carry_forward_additional_files(model, output_model)
         elif isinstance(model, CompositeModelHandler) and not self._accepts_composite_model:
-            # CompositePyTorchModel is also handled here.
             components = []
             component_names = []
             for component_name, component_model in model.get_model_components():
                 component_output_path = Path(output_model_path).with_suffix("") / component_name
-                output_model_component = self._run_for_config(
-                    component_model, data_root, config, str(component_output_path)
-                )
+                output_model_component = self._run_for_config(component_model, self.config, str(component_output_path))
                 output_model_component.model_attributes = (
                     output_model_component.model_attributes or component_model.model_attributes
                 )
@@ -221,11 +240,15 @@ class Pass(ABC):
             output_model = CompositeModelHandler(components, component_names)
             output_model.model_attributes = output_model.model_attributes or model.model_attributes
         else:
-            output_model = self._run_for_config(model, data_root, config, output_model_path)
+            output_model = self._run_for_config(model, self.config, output_model_path)
             # assumption: the model attributes from passes, if any, are more important than
             # the input model attributes, we should not update/extend anymore outside of the pass run
             output_model.model_attributes = output_model.model_attributes or model.model_attributes
-            Pass._carry_forward_additional_files(model, output_model)
+            if not isinstance(output_model, CompositeModelHandler):
+                # save and carry forward additional files into the the output model path
+                # for composite model, the additional_files attribute is already present in the parent
+                # model_attributes
+                Pass._carry_forward_additional_files(model, output_model)
 
         return output_model
 
@@ -250,9 +273,7 @@ class Pass(ABC):
         if not output_model_path.is_dir():
             if isinstance(output_model, ONNXModelHandler):
                 # change the "model_path" resource to the parent directory of the model file
-                output_model.set_resource("model_path", output_model_path.parent)
-                output_model.onnx_file_name = output_model_path.name
-                output_model_path = output_model_path.parent
+                output_model_path = output_model.change_model_path_to_dir()
             else:
                 logger.warning("Expecting the output model to be in a directory but found a file.")
                 return
@@ -279,21 +300,16 @@ class Pass(ABC):
             # like for perf-tuning pass
             output_model_additional_files.add(str(output_filepath))
 
-        output_model_attributes["additional_files"] = list(output_model_additional_files)
+        output_model_attributes["additional_files"] = sorted(output_model_additional_files)
         output_model.model_attributes = output_model_attributes
-
-    def serialize_config(self, config: Dict[str, Any], check_object: bool = False) -> str:
-        """Serialize the configuration."""
-        return self._config_class(**config).to_json(check_object)
 
     def to_json(self, check_object: bool = False) -> Dict[str, Any]:
         """Convert the pass to json."""
         return {
             "type": self.__class__.__name__,
-            "disable_search": True,
             "accelerator": self.accelerator_spec.to_json(),
             "host_device": self.host_device,
-            "config": self.serialize_config(self.config, check_object),
+            "config": self.config.to_json(check_object),
         }
 
     @classmethod
@@ -317,7 +333,7 @@ class Pass(ABC):
                 "param3": PassConfigParam(
                     type_=int,
                     default_value=1,
-                    searchable_values=Categorical([1, 2, 3]),
+                    search_defaults=Categorical([1, 2, 3]),
                     description="param3 description",
                 ),
                 # optional parameter with `category` set to `object`
@@ -334,11 +350,11 @@ class Pass(ABC):
                     default_value=ConditionalDefault(parents="param2", support={(1,): 2, (2,): 3}, default=4),
                     description="param5 description",
                 ),
-                # optional parameter with searchable_values that depends on other parameter values
+                # optional parameter with search_defaults that depends on other parameter values
                 "param6": PassConfigParam(
                     type_=int,
                     default_value=1,
-                    searchable_values=Conditional(
+                    search_defaults=Conditional(
                         parents=("param2", "param3"),
                         # invalid if (param2, param3) not in [(1, 1), (1, 2)]
                         support={
@@ -361,7 +377,7 @@ class Pass(ABC):
             if value == PassParamDefault.DEFAULT_VALUE:
                 config[key] = default_config[key].default_value
             elif value == PassParamDefault.SEARCHABLE_VALUES:
-                v = default_config[key].searchable_values
+                v = default_config[key].search_defaults
                 if v is None:
                     logger.warning("Parameter %s does not have searchable values. Using default value instead.", key)
                     v = default_config[key].default_value
@@ -377,7 +393,6 @@ class Pass(ABC):
             if default_config[key].category == ParamCategory.OBJECT and isinstance(value, str):
                 assert user_module_loader.user_script, f"'user_script' must be specified if a {key} is a string."
         # TODO(jambayk): once convention for user_script and script dir is finalized, let config class handle
-        # currently, Olive cannot have other types of pytorch models (entire model, custom loader, etc) + hf_config
         # the resolution during serialization
         if config["user_script"] is not None:
             config["user_script"] = str(Path(config["user_script"]).resolve())
@@ -417,10 +432,7 @@ class Pass(ABC):
                     value = str(Path(value).resolve())
                 fixed_params[key] = value
         assert not cyclic_search_space(search_space), "Search space is cyclic."
-        # TODO(jambayk): better error message, e.g. which parameters are invalid, how they are invalid
-        assert SearchSpace({"search_space": search_space}).size() > 0, "There are no valid points in the search space."
-
-        return {**fixed_params, **search_space}
+        return fixed_params, search_space
 
     @classmethod
     def _resolve_search_parameter(cls, param: SearchParameter, fixed_params: Dict[str, Any]) -> Any:
@@ -441,13 +453,13 @@ class Pass(ABC):
     @classmethod
     def _resolve_config(
         cls,
-        input_config: Union[Dict[str, Any], PassConfigBase],
+        input_config: Union[Dict[str, Any], Type[BasePassConfig]],
         default_config: Dict[str, PassConfigParam],
     ) -> Dict[str, Any]:
-        """Resolve config to PassConfigBase."""
+        """Resolve config to BasePassConfig."""
         config = input_config.dict()
         config = cls._resolve_defaults(config, default_config)
-        if cls._requires_user_script:
+        if "user_script" in config:
             user_module_loader = UserModuleLoader(config["user_script"], config["script_dir"])
             config = cls._validate_user_script(config, user_module_loader, default_config)
         return config
@@ -457,28 +469,12 @@ class Pass(ABC):
 
     @abstractmethod
     def _run_for_config(
-        self, model: OliveModelHandler, data_root: str, config: Dict[str, Any], output_model_path: str
+        self, model: OliveModelHandler, config: Type[BasePassConfig], output_model_path: str
     ) -> OliveModelHandler:
         """Run the pass on the model with the given configuration."""
         raise NotImplementedError
 
 
-class AbstractPassConfig(ConfigBase):
-    """Base class for pass configuration."""
-
-    type: str = Field(description="The type of the pass.")
-    disable_search: bool = Field(default=False, description="Whether to disable search.")
-    config: Dict[str, Any] = Field(
-        None,
-        description=(
-            "The configuration of the pass. Values for required parameters must be provided. For optional parameters,"
-            " default values or searchable values (if available and search is not disabled) will be used if not"
-            " provided."
-        ),
-    )
-
-
-# TODO(jambayk): rename. We are using FullPassConfig since PassConfigBase already refers to inner config
 class FullPassConfig(AbstractPassConfig):
     """Configuration for a pass serialization.
 
@@ -495,7 +491,8 @@ class FullPassConfig(AbstractPassConfig):
 
         pass_cls = Pass.registry[self.type.lower()]
         accelerator_spec = AcceleratorSpec(**self.accelerator)  # pylint: disable=not-a-mapping
-        return pass_cls(accelerator_spec, self.config, self.disable_search, self.host_device)
+        self.config = pass_cls.generate_config(accelerator_spec, self.config)
+        return pass_cls(accelerator_spec, self.config, self.host_device)
 
 
 # TODO(myguo): deprecate or remove this function by explicitly specify the accelerator_spec in the arguments
@@ -511,5 +508,5 @@ def create_pass_from_dict(
     if accelerator_spec is None:
         accelerator_spec = DEFAULT_CPU_ACCELERATOR
 
-    config = pass_cls.generate_search_space(accelerator_spec, config, disable_search)
-    return pass_cls(accelerator_spec, config, disable_search, host_device)
+    config: Type[BasePassConfig] = pass_cls.generate_config(accelerator_spec, config, disable_search=disable_search)
+    return pass_cls(accelerator_spec, config, host_device)

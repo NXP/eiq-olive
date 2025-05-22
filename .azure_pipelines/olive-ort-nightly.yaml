@@ -10,46 +10,44 @@ schedules:
     - main
 
 variables:
-    ComponentDetection.Timeout: 2400
+  runCodesignValidationInjection: false
+  skipComponentGovernanceDetection: true
 
 jobs:
 # Linux unit test
-- template: job_templates/olive-test-template.yaml
+- template: job_templates/olive-test-cpu-template.yaml
   parameters:
     name: Linux_CI_Unit_Test_Olive
     pool: $(OLIVE_POOL_UBUNTU2004)
-    device: 'cpu'
     windows: False
     test_type: 'unit_test'
-    onnxruntime: ort-nightly
+    onnxruntime_nightly: true
 
 # Linux GPU unit test
-- template: job_templates/olive-test-template.yaml
+- template: job_templates/olive-test-linux-gpu-template.yaml
   parameters:
     name: Linux_GPU_CI_Unit_Test_Olive
     pool: $(OLIVE_POOL_UBUNTU2004_GPU_V100)
-    device: 'gpu'
     windows: False
     test_type: 'unit_test'
-    onnxruntime: ort-nightly-gpu
-    requirements_file: 'requirements-test-gpu.txt'
+    onnxruntime_nightly: true
 
 # Windows unit test
-- template: job_templates/olive-test-template.yaml
+- template: job_templates/olive-test-cpu-template.yaml
   parameters:
     name: Windows_CI_Unit_Test_Olive
     pool: $(OLIVE_POOL_WIN2019)
-    device: 'cpu'
     windows: True
     test_type: 'unit_test'
-    onnxruntime: ort-nightly
+    onnxruntime_nightly: true
 
 # Linux examples test
-- template: job_templates/olive-example-template.yaml
+- template: job_templates/olive-example-linux-template.yaml
   parameters:
     name: Linux_CI
     pool: $(OLIVE_POOL_UBUNTU2004)
-    onnxruntime: ort-nightly
+    onnxruntime: onnxruntime
+    onnxruntime_nightly: true
     examples:
       bert_ptq_cpu:
         exampleFolder: bert
@@ -71,11 +69,12 @@ jobs:
         exampleName: mobilenet_qnn_ep
 
 # # Windows examples test
-- template: job_templates/olive-example-template.yaml
+- template: job_templates/olive-example-win-template.yaml
   parameters:
     name: Windows_CI
     pool: $(OLIVE_POOL_WIN2019)
-    onnxruntime: ort-nightly
+    onnxruntime: onnxruntime
+    onnxruntime_nightly: true
     examples:
       bert_ptq_cpu:
         exampleFolder: bert
@@ -83,9 +82,6 @@ jobs:
       resnet_ptq_cpu:
         exampleFolder: resnet
         exampleName: resnet_ptq_cpu
-      resnet_qat:
-        exampleFolder: resnet
-        exampleName: resnet_qat
       whisper:
         exampleFolder: whisper
         exampleName: whisper
@@ -94,11 +90,16 @@ jobs:
         exampleName: mobilenet_qnn_ep
 
 # Linux GPU examples testing.
-- template: job_templates/olive-example-template.yaml
+- template: job_templates/olive-example-linux-template.yaml
   parameters:
     name: Linux_GPU_CI
     pool: $(OLIVE_POOL_UBUNTU2004_GPU_V100)
-    onnxruntime: ort-nightly-gpu
+    device: 'gpu'
+    onnxruntime: onnxruntime-gpu
+    onnxruntime_nightly: true
+    dockerfile: '.azure_pipelines/dockerfiles/linux-gpu.dockerfile'
+    base_image: 'mcr.microsoft.com/mirror/nvcr/nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04'
+    trt_version: '10.5.0.18-1+cuda12.6'
     examples:
       bert_cuda_gpu:
         exampleFolder: bert

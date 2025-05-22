@@ -13,9 +13,10 @@ import pytest
 
 from olive.evaluator.metric import AccuracySubType
 from olive.evaluator.metric_result import joint_metric_key
+from olive.evaluator.olive_evaluator import OliveEvaluatorConfig
 from olive.hardware import DEFAULT_CPU_ACCELERATOR
 from olive.passes.olive_pass import create_pass_from_dict
-from olive.passes.onnx.perf_tuning import OrtPerfTuning
+from olive.passes.onnx.session_params_tuning import OrtSessionParamsTuning
 from olive.systems.common import LocalDockerConfig
 from olive.systems.docker.docker_system import DockerSystem
 from olive.systems.system_config import DockerTargetUserConfig, SystemConfig
@@ -102,7 +103,7 @@ class TestDockerSystem:
             buildargs=docker_config.build_args,
         )
 
-    @pytest.fixture()
+    @pytest.fixture
     def mock_docker_system_info(self):
         self.mock_from_env = patch("olive.systems.docker.docker_system.docker.from_env").start()
         self.mock_tempdir = patch("olive.systems.docker.docker_system.tempfile.TemporaryDirectory").start()
@@ -144,20 +145,20 @@ class TestDockerSystem:
 
         model_config = get_pytorch_model_config()
         metric = get_accuracy_metric(AccuracySubType.ACCURACY_SCORE)
+        evaluator_config = OliveEvaluatorConfig(metrics=[metric])
         docker_config = LocalDockerConfig(
             image_name="image_name", build_context_path="build_context_path", dockerfile="dockerfile"
         )
         docker_system = DockerSystem(docker_config, is_dev=True)
-        data_root = None
 
         if exit_code != 0:
             with pytest.raises(
                 docker.errors.ContainerError,
                 match=r".*returned non-zero exit status 1: Docker container evaluation failed with: mock_error",
             ):
-                _ = docker_system.evaluate_model(model_config, data_root, [metric], DEFAULT_CPU_ACCELERATOR)
+                _ = docker_system.evaluate_model(model_config, evaluator_config, DEFAULT_CPU_ACCELERATOR)
         else:
-            actual_res = docker_system.evaluate_model(model_config, data_root, [metric], DEFAULT_CPU_ACCELERATOR)
+            actual_res = docker_system.evaluate_model(model_config, evaluator_config, DEFAULT_CPU_ACCELERATOR)
 
             container_root_path = Path("/olive-ws/")
             eval_local_path = Path(__file__).resolve().parents[4] / "olive" / "systems" / "docker" / "eval.py"
@@ -224,35 +225,30 @@ class TestDockerSystem:
             image_name="image_name", build_context_path="build_context_path", dockerfile="dockerfile"
         )
         docker_system = DockerSystem(docker_config, is_dev=True)
-        data_root = "data_root"
 
-        p = create_pass_from_dict(OrtPerfTuning, {"data_dir": "data_dir"}, disable_search=True)
+        p = create_pass_from_dict(OrtSessionParamsTuning, {}, disable_search=True)
         output_folder = str(tmp_path / "onnx")
 
         def validate_file_or_folder(v, values, **kwargs):
             return v
 
         def is_dir_mock(self):
-            if self == Path("data_root") / "data_dir":
-                return True
-            return False
+            return self == Path("data_dir")
 
         with patch("olive.resource_path._validate_file_path", side_effect=validate_file_or_folder), patch(
             "olive.resource_path._validate_folder_path", side_effect=validate_file_or_folder
         ), patch("olive.resource_path._validate_path", side_effect=validate_file_or_folder), patch.object(
             Path, "is_dir", side_effect=is_dir_mock, autospec=True
         ):
-            output_model = docker_system.run_pass(p, onnx_model, data_root, output_folder)
+            output_model = docker_system.run_pass(p, onnx_model, output_folder)
             assert output_model is not None
 
         runner_local_path = Path(__file__).resolve().parents[4] / "olive" / "systems" / "docker" / "runner.py"
         model_path = onnx_model.config["model_path"]
-        data_dir = str(p.config["data_dir"])
         volumes_list = [
             f"{runner_local_path}:{container_root_path / 'runner.py'}",  # runner script
             f"{tmp_path / 'olive'}:{container_root_path / 'olive'}",  # olive dev
             f"{Path(model_path).resolve()}:{container_root_path / Path(model_path).name}",  # model
-            f"{Path(data_root) / data_dir}:{container_root_path / data_dir}",
             f"{tmp_path / 'config.json'}:{container_root_path / 'config.json'}",  # config
             f"{tmp_path / runner_output_path}:{container_root_path / runner_output_path}",  # output
         ]
@@ -279,10 +275,8 @@ class TestDockerSystem:
         from olive.systems.docker import utils as docker_utils
         from olive.systems.docker.runner import runner_entry as docker_runner_entry
 
-        p = create_pass_from_dict(OrtPerfTuning, {"data_dir": "data_dir"}, disable_search=True)
+        p = create_pass_from_dict(OrtSessionParamsTuning, {}, disable_search=True)
         pass_config = p.to_json(check_object=True)
-        config = p.config_at_search_point({})
-        pass_config["config"].update(p.serialize_config(config, check_object=True))
 
         onnx_model = get_onnx_model_config()
 
@@ -291,10 +285,10 @@ class TestDockerSystem:
             onnx_model,
             pass_config,
             {"model_path": onnx_model.config["model_path"]},
-            {"data_dir": str(container_root_path / "data_dir")},
+            {},
         )
         docker_utils.create_config_file(tmp_path, data, container_root_path)
-        with patch.object(OrtPerfTuning, "run", return_value=onnx_model):
+        with patch.object(OrtSessionParamsTuning, "run", return_value=onnx_model):
             docker_runner_entry(str(tmp_path / "config.json"), str(tmp_path), "runner_res.json")
             assert (tmp_path / "runner_res.json").exists()
 

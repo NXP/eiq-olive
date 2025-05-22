@@ -5,16 +5,15 @@
 import inspect
 import json
 import logging
-from enum import Enum
 from functools import partial
 from pathlib import Path
 from types import FunctionType, MethodType
-from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import yaml
 
-from olive.common.pydantic_v1 import BaseModel, Field, create_model, root_validator, validator
-from olive.common.utils import hash_function, hash_object
+from olive.common.pydantic_v1 import BaseModel, create_model, root_validator, validator
+from olive.common.utils import StrEnumBase, hash_function, hash_object
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +37,7 @@ def serialize_object(obj: Any) -> dict:
     }
 
 
-def _expanded_default(custom_default: Callable[[Any], Any], obj: Any) -> Any:
+def _expanded_default(custom_default: Callable[[Any], Any], make_absolute: bool, obj: Any) -> Any:
     if custom_default is not None:
         try:
             return custom_default(obj)
@@ -47,15 +46,15 @@ def _expanded_default(custom_default: Callable[[Any], Any], obj: Any) -> Any:
     if isinstance(obj, (FunctionType, MethodType)):
         return serialize_function(obj)
     if isinstance(obj, Path):
-        return str(obj.resolve())
+        return str(obj.resolve()) if make_absolute else str(obj)
     if hasattr(obj, "to_json"):
         return obj.to_json()
     return serialize_object(obj)
 
 
-def config_json_dumps(obj: Any, default: Callable[[Any], Any] = None, **kwargs) -> str:
+def config_json_dumps(obj: Any, default: Callable[[Any], Any] = None, make_absolute: bool = True, **kwargs) -> str:
     """Serialize a Python object into a JSON string. Also serializes functions and objects."""
-    default = partial(_expanded_default, default)
+    default = partial(_expanded_default, default, make_absolute)
     return json.dumps(obj, default=default, **kwargs)
 
 
@@ -76,12 +75,12 @@ def config_json_loads(s: Union[str, bytes, bytearray], *, object_hook: Callable[
     return json.loads(s, object_hook=object_hook, **kwargs)
 
 
-def serialize_to_json(obj: Any, check_object: bool = False) -> dict:
+def serialize_to_json(obj: Any, check_object: bool = False, make_absolute: bool = True) -> dict:
     """Serialize a Python object into a JSON dict. Also serializes functions and objects."""
     if isinstance(obj, BaseModel):
-        raw_json = obj.json()
+        raw_json = obj.json(encoder=partial(_expanded_default, None, make_absolute))
     else:
-        raw_json = config_json_dumps(obj)
+        raw_json = config_json_dumps(obj, make_absolute=make_absolute)
     if check_object:
         try:
             config_json_loads(raw_json)
@@ -101,8 +100,8 @@ class ConfigBase(BaseModel):
         json_dumps = config_json_dumps
         json_encoders = {Path: lambda x: str(x.resolve())}  # noqa: RUF012
 
-    def to_json(self, check_object: bool = False) -> dict:
-        return serialize_to_json(self, check_object)
+    def to_json(self, check_object: bool = False, make_absolute: bool = True) -> dict:
+        return serialize_to_json(self, check_object, make_absolute)
 
     @classmethod
     def from_json(cls, json_dict: dict) -> "ConfigBase":
@@ -162,62 +161,78 @@ class ConfigDictBase(ConfigBase):
         return len(self.__root__) if self.__root__ else 0
 
 
-class ConfigWithExtraArgs(ConfigBase):
+class NestedConfig(ConfigBase):
     """Config class that automatically gathers all values.
 
-    The values are not defined in the class fields and inserted into a dict Field called `extra_args`.
+    The values are defined in the class fields and inserted into a dict Field called described by `_nested_field_name`.
+    Generally used for configs that have a nested structure like:
+        {
+            "type": "object",
+            "config": {
+                "key1": "value1",
+                "key2": "value2"
+            }
+        }
+    Must ensure that there are no fields inside the `_nested_field_name` dict/class that are also defined as fields in
+    this class. The fields of this class take precedence over the fields in the nested class.
     """
 
-    extra_args: Dict = Field(
-        None,
-        description=(
-            "Dictionary of extra arguments that are not defined in the class fields. Values can be provided in two"
-            " ways: 1. As a dict value to `extra_args` key. 2. As keyword arguments to the class constructor. Any"
-            " values provided as keyword arguments will be added to the `extra_args` dict. `extra_args` values take"
-            " precedence over keyword arguments if the same key is provided in both."
-        ),
-    )
+    _nested_field_name: str = "config"
 
     @root_validator(pre=True)
-    def gather_extra_args(cls, values):
-        other_fields = set()
-        for field in cls.__fields__.values():
-            for name in (field.name, field.alias):
-                if name != "extra_args":
-                    other_fields.add(name)
+    def gather_nested_field(cls, values):
+        # print("here", cls.__name__)
+        all_fields = {name_or_alias for field in cls.__fields__.values() for name_or_alias in (field.name, field.alias)}
+        if cls._nested_field_name not in all_fields:
+            logger.debug(
+                "TypedConfig is used but is missing the nested field name '%s'. Ignoring root validator",
+                cls._nested_field_name,
+            )
+            return values
 
-        extra_args = values.pop("extra_args", {}) or {}
-        # ensure that extra_args does not contain any field names
-        for name in list(extra_args):  # need a copy of the keys since we are mutating the dict
-            if name in other_fields:
-                logger.warning(
-                    "'%s' provided to 'extra_args' is already defined in the class fields. Please provide the"
-                    " value directly to the field. Ignoring.",
-                    name,
-                )
-                del extra_args[name]
-        # put any values provided as keyword arguments into extra_args
+        other_fields = all_fields - {cls._nested_field_name}
+
+        nested_field = values.pop(cls._nested_field_name, {}) or {}
+        if isinstance(nested_field, ConfigBase):
+            # TODO(jambayk): do we want to allow this case? Or only allow one of "_nested_field_name" or kwargs?
+            nested_field = nested_field.dict()
+
+        # put any other fields into the nested field
         for name in list(values):  # need a copy of the keys since we are mutating the dict
             if name in other_fields:
                 continue
-            if name in extra_args:
-                # extra_args takes precedence over keyword arguments
-                logger.warning("kwarg '%s' is already defined in 'extra_args'. Ignoring.", name)
+            if name in nested_field:
+                logger.warning("field '%s' is already defined in '%s'. Ignoring.", name, cls._nested_field_name)
             else:
-                extra_args[name] = values.pop(name)
-        if extra_args:
-            values["extra_args"] = extra_args
+                nested_field[name] = values.pop(name)
+
+        if nested_field or cls.__fields__[cls._nested_field_name].required:
+            values[cls._nested_field_name] = nested_field
         return values
 
 
-class ParamCategory(str, Enum):
+class CaseInsensitiveEnum(StrEnumBase):
+    """StrEnum class that is insensitive to the case of the input string.
+
+    Note: Only insensitive when creating the enum object like `CaseInsensitiveEnum("value")`.
+    The values of the enum are still case-sensitive.
+    """
+
+    @classmethod
+    def _missing_(cls, value):
+        value = value.lower()
+        for member in cls:
+            if member.lower() == value:
+                return member
+        return None
+
+
+# TODO(jambayk): remove ParamCategory once validate object is removed or updated
+class ParamCategory(CaseInsensitiveEnum):
     NONE = "none"
     OBJECT = "object"
     PATH = "path"
     DATA = "data"
-
-    def __str__(self) -> str:
-        return self.value
 
 
 class ConfigParam(ConfigBase):
@@ -256,6 +271,13 @@ def validate_object(v, values, field):
         raise ValueError("Invalid user_script")
     if isinstance(v, str) and values["user_script"] is None:
         raise ValueError(f"user_script must be provided if {field.name} is a name string")
+    return v
+
+
+# validator that always converts string to lowercase
+def validate_lowercase(v):
+    if isinstance(v, str):
+        return v.lower()
     return v
 
 
@@ -305,8 +327,12 @@ def validate_config(
     if isinstance(config, dict):
         user_keys = set(config.keys())
         config = instance_class(**config)
-        config_keys = set(config.dict().keys())
+        # check for unused keys
+        config_dict = config.dict()
+        config_keys = set(config_dict.keys())
         unused_keys = user_keys - config_keys
+        if isinstance(config, NestedConfig):
+            unused_keys -= set((config_dict.get(config._nested_field_name) or {}).keys())  # pylint: disable=W0212
         if unused_keys and warn_unused_keys:
             logger.warning("Keys %s are not part of %s. Ignoring them.", unused_keys, instance_class.__name__)
     # for dynamically created class by Pydantic create_model, the classes are different even if the class names are same
@@ -321,3 +347,42 @@ def validate_config(
             f"Invalid config class. Expected {instance_class.__name__} but got {config.__class__.__name__}"
         )
     return config
+
+
+def convert_configs_to_dicts(config: Any) -> Any:
+    """Convert all ConfigBase objects to dictionaries."""
+    if isinstance(config, ConfigBase):
+        return config.dict()
+    if isinstance(config, dict):
+        return {k: convert_configs_to_dicts(v) for k, v in config.items()}
+    if isinstance(config, list):
+        return [convert_configs_to_dicts(v) for v in config]
+    return config
+
+
+def get_the_flattened_and_tree_spec(
+    dynamic_shapes: Union[Dict[str, Any], List[Any]], leave_is_str: bool = False
+) -> Tuple[List[Any], Any]:
+    """Flattens a pytree into a list of values and a TreeSpec that can be used to reconstruct the pytree."""
+    # More info: https://github.com/pytorch/pytorch/blob/48203bec636692e1a9140fe7f23ba1323b19550d/torch/utils/_pytree.py#L985
+    from torch.utils import _pytree
+
+    def is_axes_with_str_key(x) -> bool:
+        # axes can be either a dict or a list/tuple
+        # dict: {str: str}
+        # list/tuple: [str]
+        return (
+            isinstance(x, dict)
+            and all(isinstance(k, str) and (v is None or isinstance(v, (str, int))) for k, v in x.items())
+        ) or (isinstance(x, (list, tuple)) and all(v is None or isinstance(v, (str, int)) for v in x))
+
+    def is_axes_with_int_key(x) -> bool:
+        # axes can be either a dict or a list/tuple
+        # dict: {int: str}
+        # list/tuple: [str]
+        return (
+            isinstance(x, dict)
+            and all(isinstance(k, int) and (v is None or isinstance(v, (str, int))) for k, v in x.items())
+        ) or (isinstance(x, (list, tuple)) and all(v is None or isinstance(v, (str, int)) for v in x))
+
+    return _pytree.tree_flatten(dynamic_shapes, is_leaf=is_axes_with_str_key if leave_is_str else is_axes_with_int_key)

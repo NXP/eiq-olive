@@ -9,7 +9,7 @@ import platform
 import shutil
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Union
 
 from olive.common.constants import OS
 from olive.common.utils import run_subprocess
@@ -21,7 +21,7 @@ from olive.systems.system_config import PythonEnvironmentTargetUserConfig
 from olive.systems.utils import create_new_environ, get_package_name_from_ep, run_available_providers_runner
 
 if TYPE_CHECKING:
-    from olive.evaluator.metric import Metric
+    from olive.evaluator.olive_evaluator import OliveEvaluatorConfig
     from olive.hardware.accelerator import AcceleratorSpec
     from olive.passes.olive_pass import Pass
 
@@ -109,15 +109,10 @@ class PythonEnvironmentSystem(OliveSystem):
         self,
         the_pass: "Pass",
         model_config: ModelConfig,
-        data_root: str,
         output_model_path: str,
-        point: Optional[Dict[str, Any]] = None,
     ) -> ModelConfig:
-        """Run the pass on the model at a specific point in the search space."""
-        point = point or {}
-        config = the_pass.config_at_search_point(point)
+        """Run the pass on the model."""
         pass_config = the_pass.to_json(check_object=True)
-        pass_config["config"].update(the_pass.serialize_config(config, check_object=True))
         config_jsons = {
             "model_config": model_config.to_json(check_object=True),
             "pass_config": pass_config,
@@ -125,24 +120,21 @@ class PythonEnvironmentSystem(OliveSystem):
         output_model_json = self._run_command(
             self.pass_runner_path,
             config_jsons,
-            data_root=data_root,
             tempdir=tempfile.tempdir,
             output_model_path=output_model_path,
         )
         return ModelConfig.parse_obj(output_model_json)
 
     def evaluate_model(
-        self, model_config: ModelConfig, data_root: str, metrics: List["Metric"], accelerator: "AcceleratorSpec"
+        self, model_config: ModelConfig, evaluator_config: "OliveEvaluatorConfig", accelerator: "AcceleratorSpec"
     ) -> MetricResult:
         """Evaluate the model."""
         config_jsons = {
             "model_config": model_config.to_json(check_object=True),
-            "metrics_config": [metric.to_json(check_object=True) for metric in metrics],
+            "evaluator_config": evaluator_config.to_json(check_object=True),
             "accelerator_config": accelerator.to_json(),
         }
-        metric_results = self._run_command(
-            self.evaluation_runner_path, config_jsons, data_root=data_root, tempdir=tempfile.tempdir
-        )
+        metric_results = self._run_command(self.evaluation_runner_path, config_jsons, tempdir=tempfile.tempdir)
         return MetricResult.parse_obj(metric_results)
 
     def get_supported_execution_providers(self) -> List[str]:

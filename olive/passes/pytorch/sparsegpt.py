@@ -7,21 +7,23 @@
 # https://arxiv.org/abs/2301.00774
 # -------------------------------------------------------------------------
 import logging
-from typing import Any, Dict, List, Union
+from typing import Dict, List, Type, Union
 
 import torch
 
 from olive.common.config_utils import validate_config
+from olive.common.hf.wrapper import ModelWrapper
 from olive.data.config import DataConfig
 from olive.hardware.accelerator import AcceleratorSpec
-from olive.model import PyTorchModelHandler
+from olive.model import HfModelHandler
 from olive.passes import Pass
 from olive.passes.olive_pass import PassConfigParam
+from olive.passes.pass_config import BasePassConfig
+from olive.passes.pytorch.common import inherit_hf_from_hf
 from olive.passes.pytorch.sparsegpt_utils import (
     SparseGPTModule,
     catch_layer_inputs,
     get_layer_submodules,
-    get_layers,
     supported_models,
     validate_min_max_layers,
 )
@@ -34,8 +36,8 @@ class SparseGPT(Pass):
 
     See https://arxiv.org/abs/2301.00774 for more details on the algorithm.
 
-    This pass only supports PyTorchModelHandler with hf_config. The transformers model type
-    must be one of [bloom, gpt2, gpt_neox, llama, opt].
+    This pass only supports HfModelHandler.
+    The transformers model type must be one of [bloom, gpt2, gpt_neox, llama, opt].
     """
 
     @classmethod
@@ -92,23 +94,23 @@ class SparseGPT(Pass):
 
     @torch.no_grad()
     def _run_for_config(
-        self, model: PyTorchModelHandler, data_root: str, config: Dict[str, Any], output_model_path: str
-    ) -> PyTorchModelHandler:
+        self, model: HfModelHandler, config: Type[BasePassConfig], output_model_path: str
+    ) -> HfModelHandler:
         model_type = model.model_attributes["model_type"]
         if model_type not in supported_models:
             raise ValueError(f"Unsupported model type: {model_type}. Supported types: {supported_models}")
 
         # get sparsity mode and parameters
-        if isinstance(config["sparsity"], float):
-            assert 0 <= config["sparsity"] <= 1, "Sparsity must be in [0,1]."
-        elif isinstance(config["sparsity"], list):
-            assert len(config["sparsity"]) == 2, "Sparsity must be a float or a list of two integers."
-        mode = "unstructured" if isinstance(config["sparsity"], float) else "structured"
-        sparsity = config["sparsity"]
+        if isinstance(config.sparsity, float):
+            assert 0 <= config.sparsity <= 1, "Sparsity must be in [0,1]."
+        elif isinstance(config.sparsity, list):
+            assert len(config.sparsity) == 2, "Sparsity must be a float or a list of two integers."
+        mode = "unstructured" if isinstance(config.sparsity, float) else "structured"
+        sparsity = config.sparsity
         n, m = sparsity if mode == "structured" else [0, 0]
 
         # get device to use for computations
-        device = config["device"]
+        device = config.device
         if device == "auto":
             device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.debug(
@@ -116,34 +118,31 @@ class SparseGPT(Pass):
         )
 
         # load_data
-        data_config = validate_config(config["data_config"], DataConfig)
-        dataloader = data_config.to_data_container().create_dataloader(data_root)
+        data_config = validate_config(config.data_config, DataConfig)
+        dataloader = data_config.to_data_container().create_dataloader()
         logger.debug("Data loaded. Number of batches: %d", len(dataloader))
 
         # load model
-        pytorch_model = model.load_model()
-        # we will update the model inplace
-        # since the models are large, it is expensive to copy and maintain two copies
-        # set model.model to None so that the input model doesn't use this same model object when it is loaded
-        model.model = None
-        # alternative is to copy the model and use the copy
-        # pytorch_model = copy.deepcopy(model.model)
+        pytorch_model = model.load_model(cache_model=False)
         pytorch_model.eval()
         use_cache = pytorch_model.config.use_cache
         pytorch_model.config.use_cache = False
 
+        # create model adapter
+        model_wrapper = ModelWrapper.from_model(pytorch_model)
+
         # get module list of layers
-        layers = get_layers(pytorch_model, model_type)
+        layers = model_wrapper.get_layers(False)
 
         # get the inputs to the first layer
-        inputs, attention_mask, extras = catch_layer_inputs(pytorch_model, model_type, dataloader, device)
+        inputs, attention_mask, extras = catch_layer_inputs(model_wrapper, dataloader, device)
         logger.debug("Inputs shape: %s", inputs.shape)
         # place holder to store output from layer
         outputs = torch.zeros_like(inputs)
 
         # prune layers
-        min_layer, max_layer = validate_min_max_layers(config["min_layer"], config["max_layer"], len(layers))
-        layer_name_filter = config["layer_name_filter"] or []
+        min_layer, max_layer = validate_min_max_layers(config.min_layer, config.max_layer, len(layers))
+        layer_name_filter = config.layer_name_filter or []
         if isinstance(layer_name_filter, str):
             layer_name_filter = [layer_name_filter]
         # loop over layers
@@ -185,7 +184,7 @@ class SparseGPT(Pass):
             losses = {}
             for name, sparse_gpt_module in sparge_gpt_modules.items():
                 loss = sparse_gpt_module.prune(
-                    mode, sparsity, n, m, blocksize=config["blocksize"], percdamp=config["percdamp"]
+                    mode, sparsity, n, m, blocksize=config.blocksize, percdamp=config.percdamp
                 )
                 losses[name] = loss
                 sparse_gpt_module.free()
@@ -200,8 +199,7 @@ class SparseGPT(Pass):
         # save model
         pytorch_model.config.use_cache = use_cache
         pytorch_model.save_pretrained(output_model_path)
+        model.save_metadata(output_model_path)
 
-        # return PyTorchModelHandler with updated model path
-        model_config = model.to_json()["config"]
-        model_config["model_path"] = output_model_path
-        return PyTorchModelHandler(**model_config)
+        # return HfModelHandler with updated model path
+        return inherit_hf_from_hf(model, output_model_path)

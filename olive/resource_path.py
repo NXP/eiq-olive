@@ -7,20 +7,27 @@ import re
 import shutil
 import tempfile
 from abc import abstractmethod
-from enum import Enum
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Dict, List, Optional, Type, Union
 
 from olive.azureml.azureml_client import AzureMLClientConfig
 from olive.common.auto_config import AutoConfigClass
-from olive.common.config_utils import ConfigBase, ConfigParam, serialize_to_json, validate_config
+from olive.common.config_utils import (
+    CaseInsensitiveEnum,
+    ConfigBase,
+    ConfigParam,
+    NestedConfig,
+    serialize_to_json,
+    validate_config,
+)
 from olive.common.pydantic_v1 import Field, validator
 from olive.common.utils import copy_dir, retry_func
 
 logger = logging.getLogger(__name__)
 
 
-class ResourceType(str, Enum):
+class ResourceType(CaseInsensitiveEnum):
     LocalFile = "file"
     LocalFolder = "folder"
     StringName = "string_name"
@@ -28,9 +35,6 @@ class ResourceType(str, Enum):
     AzureMLRegistryModel = "azureml_registry_model"
     AzureMLDatastore = "azureml_datastore"
     AzureMLJobOutput = "azureml_job_output"
-
-    def __str__(self) -> str:
-        return self.value
 
 
 LOCAL_RESOURCE_TYPES = (ResourceType.LocalFile, ResourceType.LocalFolder)
@@ -68,7 +72,11 @@ class ResourcePath(AutoConfigClass):
 
     def is_azureml_resource(self) -> bool:
         """Return True if the resource is an AzureML resource."""
-        return self.type in AZUREML_RESOURCE_TYPES
+        return self.type in AZUREML_RESOURCE_TYPES or self.type == ResourceType.AzureMLRegistryModel
+
+    def is_azureml_models(self) -> bool:
+        """Return True if the resource is an AzureML model."""
+        return self.type in (ResourceType.AzureMLModel, ResourceType.AzureMLRegistryModel)
 
     def is_string_name(self) -> bool:
         """Return True if the resource is a string name."""
@@ -91,7 +99,7 @@ class ResourcePath(AutoConfigClass):
         return hash((self.config.to_json(), self.type))
 
 
-class ResourcePathConfig(ConfigBase):
+class ResourcePathConfig(NestedConfig):
     type: ResourceType = Field(..., description="Type of the resource.")
     config: ConfigBase = Field(..., description="Config of the resource.")
 
@@ -107,32 +115,32 @@ class ResourcePathConfig(ConfigBase):
         return ResourcePath.registry[self.type](self.config)
 
 
+VALID_RESOURCE_CONFIGS = (str, Path, dict, ResourcePathConfig, ResourcePath)
+OLIVE_RESOURCE_ANNOTATIONS = Optional[Union[str, Path, dict, ResourcePathConfig, ResourcePath]]
+
+
 def create_resource_path(
-    resource_path: Optional[Union[str, Path, Dict[str, Any], ResourcePathConfig, ResourcePath]]
-) -> Optional[Union[ResourcePath, List[ResourcePath]]]:
+    resource_path: OLIVE_RESOURCE_ANNOTATIONS,
+) -> Optional[ResourcePath]:
     """Create a resource path from a string or a dict.
 
-    If a string is provided, it is inferred to be a file, folder, or string name.
-    If a Path is provided, it is inferred to be a file or folder.
+    If a string or Path is provided, it is inferred to be a file, folder, or string name.
     If a dict is provided, it must have "type" and "config" fields. The "type" field must be one of the
     values in the ResourceType enum. The "config" field must be a dict that can be used to create a resource
     config of the specified type.
 
-    :param resource_path: A string, a Path, or a dict.
+    :param resource_path:
     :return: A resource path.
     """
     if resource_path is None:
         return None
     if isinstance(resource_path, ResourcePath):
         return resource_path
-    if isinstance(resource_path, list):
-        return [create_resource_path(rp) for rp in resource_path]
     if isinstance(resource_path, (ResourcePathConfig, dict)):
         resource_path_config = validate_config(resource_path, ResourcePathConfig)
         return resource_path_config.create_resource_path()
 
     # check if the resource path is a file, folder, azureml datastore, or a string name
-    is_local_file = True
     resource_type: ResourceType = None
     config_key = None
     if Path(resource_path).is_file():
@@ -144,25 +152,51 @@ def create_resource_path(
     elif str(resource_path).startswith("azureml://"):
         resource_type = ResourceType.AzureMLDatastore
         config_key = "datastore_url"
-        is_local_file = False
     else:
         resource_type = ResourceType.StringName
         config_key = "name"
-        is_local_file = False
 
-    if is_local_file and isinstance(resource_path, Path) and not resource_path.exists():
-        raise ValueError(f"Resource path {resource_path} of type Path does not exist.")
-
-    logger.debug("Resource path %s is inferred to be of type %s.", resource_path, resource_type)
     return ResourcePathConfig(type=resource_type, config={config_key: resource_path}).create_resource_path()
 
 
 def validate_resource_path(v, values, field):
     try:
         v = create_resource_path(v)
+        if v and v.is_local_resource_or_string_name():
+            # might expect a string or Path when using this resource locally
+            v = v.get_path()
     except ValueError as e:
         raise ValueError(f"Invalid resource path '{v}': {e}") from None
     return v
+
+
+def find_all_resources(config, ignore_keys: Optional[List[str]] = None) -> Dict[str, ResourcePath]:
+    """Find all resources in a config.
+
+    :param config: The config to search for resources.
+    :param ignore_keys: A list of keys to ignore when searching for resources.
+    :return: A dictionary of all resources found in the config.
+        keys are tuples representing the path to the resource in the config and the values are
+        the resource paths.
+    """
+    if isinstance(config, VALID_RESOURCE_CONFIGS):
+        try:
+            # don't want to accidentally modify the original config
+            resource_path = create_resource_path(deepcopy(config))
+            if resource_path.is_string_name():
+                return {}
+            return {(): resource_path}
+        except ValueError:
+            pass
+
+    resources = {}
+    if isinstance(config, (dict, list)):
+        for k, v in config.items() if isinstance(config, dict) else enumerate(config):
+            if ignore_keys and k in ignore_keys:
+                continue
+            resources.update({(k, *k2): v2 for k2, v2 in find_all_resources(v, ignore_keys=ignore_keys).items()})
+
+    return resources
 
 
 def _overwrite_helper(new_path: Union[Path, str], overwrite: bool):
@@ -593,6 +627,3 @@ class AzureMLJobOutput(ResourcePath):
             new_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(temp_dir / "named-outputs" / self.config.output_name / self.config.relative_path, new_path)
         return str(new_path)
-
-
-OLIVE_RESOURCE_ANNOTATIONS = Optional[Union[str, Path, ResourcePath, ResourcePathConfig]]

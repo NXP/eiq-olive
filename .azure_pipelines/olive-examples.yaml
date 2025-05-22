@@ -1,0 +1,88 @@
+trigger: none
+
+pr: none
+
+schedules:
+- cron: '0 0 * * 1'
+  displayName: Weekly build
+  branches:
+    include:
+    - main
+
+variables:
+  runCodesignValidationInjection: false
+  skipComponentGovernanceDetection: true
+
+jobs:
+# Linux examples test
+- template: job_templates/olive-example-linux-template.yaml
+  parameters:
+    name: Linux_Examples
+    pool: $(OLIVE_POOL_UBUNTU2004)
+    onnxruntime: onnxruntime
+    hf_token: true
+    examples:
+      bert_inc:
+        exampleFolder: bert
+        exampleName: bert_inc
+      resnet_vitis_ai_ptq_cpu:
+        exampleFolder: resnet
+        exampleName: resnet_vitis_ai_ptq_cpu
+      resnet_qat:
+        exampleFolder: resnet
+        exampleName: resnet_qat
+      super_resolution:
+        exampleFolder: super_resolution
+        exampleName: super_resolution
+      mobilenet_onnx:
+        exampleFolder: mobilenet/onnx
+        exampleName: mobilenet
+
+# Windows examples test
+- template: job_templates/olive-example-win-template.yaml
+  parameters:
+    name: Windows_CI
+    pool: $(OLIVE_POOL_WIN2019)
+    onnxruntime: onnxruntime
+    hf_token: true
+    examples:
+      bert_inc:
+        exampleFolder: bert
+        exampleName: bert_inc
+      bert_ptq_cpu_docker:
+        exampleFolder: bert
+        exampleName: bert_ptq_cpu_docker
+      resnet_vitis_ai_ptq_cpu:
+        exampleFolder: resnet
+        exampleName: resnet_vitis_ai_ptq_cpu
+      resnet_qat:
+        exampleFolder: resnet
+        exampleName: resnet_qat
+      super_resolution:
+        exampleFolder: super_resolution
+        exampleName: super_resolution
+      mobilenet_qnn_toolkit:
+        exampleFolder: mobilenet/qnn
+        exampleName: qnn_tooklit
+      inception_snpe_toolkit:
+        exampleFolder: inception/qnn
+        exampleName: snpe_toolkit
+
+# Linux GPU examples testing.
+- template: job_templates/olive-example-linux-template.yaml
+  parameters:
+    name: Linux_GPU_Examples
+    pool: $(OLIVE_POOL_UBUNTU2004_GPU_V100)
+    device: 'gpu'
+    onnxruntime: onnxruntime-gpu
+    dockerfile: '.azure_pipelines/dockerfiles/linux-gpu.dockerfile'
+    base_image: 'mcr.microsoft.com/mirror/nvcr/nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04'
+    trt_version: '10.5.0.18-1+cuda12.6'
+    examples:
+      mistral:
+        exampleFolder: mistral
+        exampleName: mistral_fp16
+      phi2:
+        exampleFolder: phi2
+        exampleName: phi2
+        exampleRequirements: requirements-pipeline.txt

@@ -8,9 +8,9 @@ from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Union
 
-from olive.common.config_utils import ConfigBase
+from olive.common.config_utils import ConfigBase, NestedConfig, validate_lowercase
 from olive.common.import_lib import import_user_module
-from olive.common.pydantic_v1 import validator
+from olive.common.pydantic_v1 import Field, root_validator, validator
 from olive.data.constants import DataComponentType, DefaultDataComponent, DefaultDataContainer
 from olive.data.registry import Registry
 
@@ -20,9 +20,15 @@ if TYPE_CHECKING:
     from olive.data.container.data_container import DataContainer
 
 
-class DataComponentConfig(ConfigBase):
+class DataComponentConfig(NestedConfig):
+    _nested_field_name = "params"
+
     type: str = None
-    params: Dict = None
+    params: Dict = Field(default_factory=dict)
+
+    @validator("type", pre=True)
+    def validate_type(cls, v):
+        return validate_lowercase(v)
 
 
 DefaultDataComponentCombos = {
@@ -46,6 +52,12 @@ class DataConfig(ConfigBase):
     post_process_data_config: DataComponentConfig = None
     dataloader_config: DataComponentConfig = None
 
+    @root_validator(pre=True)
+    def validate_data_config(cls, values):
+        if values.get("user_script"):
+            import_user_module(values["user_script"], values.get("script_dir"))
+        return values
+
     @validator("name", pre=True)
     def validate_name(cls, v):
         pattern = r"^[A-Za-z0-9_]+$"
@@ -53,11 +65,14 @@ class DataConfig(ConfigBase):
             raise ValueError(f"DataConfig name {v} should only contain letters, numbers and underscore.")
         return v
 
+    @validator("type", pre=True)
+    def validate_type(cls, v):
+        if v is not None and Registry.get_container(v) is None:
+            raise ValueError(f"Invalid/unknown DataConfig type: {v}")
+        return validate_lowercase(v)
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # call import_user_module to load the user script once and register the components
-        if self.user_script:
-            import_user_module(self.user_script, self.script_dir)
         self._update_components()
         self._fill_in_params()
 
@@ -98,7 +113,7 @@ class DataConfig(ConfigBase):
                 default_components_type[k] = v
 
         # 2. get default_components from default_components_type
-        return {k: DataComponentConfig(type=v, params={}) for k, v in default_components_type.items()}
+        return {k: DataComponentConfig(type=v) for k, v in default_components_type.items()}
 
     def _fill_in_params(self):
         """Fill in the default parameters for each component.
@@ -193,6 +208,8 @@ class DataConfig(ConfigBase):
             if config and config.params:
                 task_type = config.params.get("task")
                 if task_type:
-                    task_specific_override = dc_cls.task_type_components_map.get(task_type, {}).get(component_name)
+                    task_specific_override = dc_cls.task_type_components_map.get(
+                        task_type.replace("-with-past", ""), {}
+                    ).get(component_name)
                     if task_specific_override:
                         default_components_type[component_name] = task_specific_override

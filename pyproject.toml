@@ -130,6 +130,7 @@ select = [
 # NOTE: Refrain from growing the ignore list unless for exceptional cases.
 # Always include a comment to explain why.
 ignore = [
+  "A005", # Ignore modules using the same names as Python standard-library modules
   "B028", # FIXME: Add stacklevel to warnings
   "B905", # keep using less than Python 3.10. The strict is added in Python 3.10
   "D100", # Ignore missing docstring in public module
@@ -147,6 +148,7 @@ ignore = [
   "N999", # Module names
   "NPY002", # np.random.Generator may not always fit our use cases
   "PERF203", # "try-except-in-loop" only affects Python <3.11, and the improvement is minor; can have false positives
+  "PGH004", # used to make ruff ignore the file
   "PLW0603", # TODO: temp disable global variable check
   "PT004", # Ignore pytest fixture name
   "PT019", # Ignore pytest fixture name
@@ -190,9 +192,10 @@ classmethod-decorators = ["classmethod", "olive.common.pydantic_v1.validator", "
 
 [tool.ruff.lint.per-file-ignores]
 ".azure_pipelines/**" = ["INP001"]
-"examples/**" = ["INP001"]
-"olive/engine/packaging/sample_code/ONNXModel/python/**" = ["INP001"]
+"examples/**" = ["TID252", "INP001"]
 "docs/**" = ["INP001"]
 "test/**" = ["INP001"]
 "scripts/**" = ["INP001"]
 "examples/directml/llm/chat_app/**" = ["TID252", "UP006", "T201"]
+"olive/cli/**" = ["T201"]
+"olive/**/hadamard_utils.py" = ["E501"]

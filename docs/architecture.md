@@ -13,12 +13,12 @@ This document describes the Olive components, and some implementation details. T
 - [Search](#search)
     - [Search Parameter](#searchparameter)
     - [Search Space](#searchspace)
-    - [Search Algorithm](#searchalgorithm)
+    - [Search Sampler](#searchsampler)
     - [Search Results](#searchresults)
-- [Search Strategy](#search-strategy)
-    - [Execution order](#execution-order)
-    - [User Interface](#user-interface)
-    - [Implementation](#implementation)
+    - [Search Strategy](#search-strategy)
+        - [Execution order](#execution-order)
+        - [User Interface](#user-interface)
+        - [Implementation](#implementation)
 - [System](#system)
     - [OliveSystem Class](#olivesystem-class)
 - [Data Container](#data-container)
@@ -35,7 +35,7 @@ Passes are the building blocks of an Olive workflow. Olive uses multiple Passes 
 The base class for Pass:
 ```python
 class Pass(ABC):
-    def __init__(self, accelerator_spec: AcceleratorSpec, config: Union[Dict[str, Any], BaseModel], disable_search: Optional[bool] = False, host_device: Optional[str] = None):
+    def __init__(self, accelerator_spec: AcceleratorSpec, config: Union[Dict[str, Any], BaseModel], host_device: Optional[str] = None):
         ...
 
     @classmethod
@@ -49,13 +49,10 @@ class Pass(ABC):
 where `BaseModel` is a [pydantic model](https://docs.pydantic.dev/usage/models/)
 
 It is initialized using:
-- Config dictionary `{“param_name”: param_value}` and boolean `disable_search`.
-
-  If `disable_search=False`, use default search parameters, if any, for parameters that are not specified
-        in the config. Else use the default value.
+- Accelerator object, Config dictionary `{“param_name”: param_value}`, and the host device.
 - Pydantic model which behaves like a Dataclass with type validation. Each pass class has a class method `get_config_class` which returns the pass specific pydantic model that users can instantiate.
 
-Optional parameters can be fixed values or search values which are prescribed using `SearchParameter`.
+Optional parameters can be fixed values or search values which are described using `SearchParameter`.
 
 Searchable parameters have default search values which can be used by assigning the config value as `SEARCHABLE_VALUES`. Optional parameters use the default fixed value, also assignable using `DEFAULT_VALUE`, if not assigned.
 
@@ -106,14 +103,15 @@ The engine delegates the search to the search strategy. It only executes passes 
 
 ### cache
 The engine maintains a cache directory with three sub-directories:
-- `model`: stores model files and their corresponding json configs (framework, model path, and other information). Each model created during execution is given a unique model id. The input model is identified by the hash of its model file contents.
-- `run`: stores the id of the output model (present in the model cache) for each run of a pass. The cache is indexed by `{pass type}_{hash of pass config}_{input model id}`.
-- `evaluation`: stores the evaluation results for models. The cache is indexed by the model id.
+- `runs`: stores run json, model files and their corresponding json configs (framework, model path, and other information). Each model created during execution is given a unique model id. The input model is identified by the hash of its model file contents.
+- `evaluations`: stores the evaluation results for models. The cache is indexed by the model id.
+- `resources`: remote resources will be loaded to this folder.
+- `mlflow`: stores mlflow model files.
 
 ## Search
-Olive workflows support search parameters which are optimized using search algorithms.
+Olive workflows support search parameters which are optimized using various execution order.
 
-At the most basic level is `SearchParameter` which describes the options for search parameters. `SearchSpace` combines search parameters for one or more passes and `SearchAlgorithm` provides different sampling algorithms to search for the best parameter configuration (search point) from the search space.
+At the most basic level is `SearchParameter` which describes the options for search parameters. `SearchSpace` combines search parameters for one or more passes and `SearchSampler` provides different sampling algorithms to search for the best parameter configuration (search point) from the search space.
 
 ### SearchParameter
 A search parameter defines a discrete categorical distribution.
@@ -124,7 +122,7 @@ There are two types of search parameters:
 
 **Note:**
 - There cannot be any cyclic parent child dependencies.
-- Search algorithms order the search parameters topologically so that the parents are sampled before the children.
+- Search space orders the search parameters topologically so that the parents are sampled before the children.
 
 ### SearchSpace
 Search space combines search parameters from one or more passes and provides methods to iterate over the search space (`iterate`) or generate random samples (`random_sample`).
@@ -141,18 +139,18 @@ The corresponding conceptual search space is the space of all possible parameter
 {“pass_id/space_name”: {“param_name”: param_value}}
 ```
 
-### SearchAlgorithm
-Search algorithm operates over a search space and provides samples/trials (search points) from the search space to execute and evaluate.
+### SearchSampler
+Sampling algorithm queries over a search space and provides samples/trials (search points) from the search space to evaluate.
 
-Each search algorithm provides the methods:
+Each search sampler provides the methods:
 - `suggest`: returns a search point to execute and evaluate. The algorithm can sample a search point based on the evaluation results for previously suggested points.
 - `report`: report evaluation results for a search point. The search point can also be pruned if it contains invalid pass configs or failed during execution/evaluation.
 
-The following search algorithms have been implemented:
-- `ExhaustiveSearchAlgorithm`: Exhaustively iterates over the search space.
-- `RandomSearchAlgorithm`: Randomly samples points from the search space without replacement.
-- `OptunaSearchAlgorithm`: Abstract base class for algorithms built using `optuna` samplers. This class cannot be used directly
-    - `TPESearchAlgorithm`: Uses optuna `TPESampler`.
+The following sampling algorithms have been implemented:
+- `SequentialSampler`: Sequentially iterates over the search space.
+- `RandomSampler`: Randomly samples points from the search space.
+- `OptunaSampler`: Abstract base class for algorithms built using `optuna` samplers.
+    - `TPESampler`: Uses optuna's `TPESampler`.
 
 ### SearchResults
 `SearchResults` stores evaluation results for samples made from a search space and provides tools to analyze and select the best search point/s.
@@ -161,10 +159,10 @@ Results are reported using the `record` method.
 
 Currently `best_search_point` selects the best search point by maximizing/minimizing metrics using tie breaking. We intend to provide different model selection strategies for both single and multi-objective optimization.
 
-## Search Strategy
+## SearchStrategy
 Search strategy provides an optimization pipeline that finds the best search point from the search space of one or more passes.
 
-It consists of two sub-components – `execution_order` and `search_algorithm`. Search algorithm has been covered in the previous section.
+It consists of two sub-components – `execution_order` and `sampler`. Sampling algorithms have been covered in the previous section.
 
 ### Execution Order
 The execution order defines the order in which the passes are optimized.
@@ -200,7 +198,6 @@ class OliveSystem(ABC):
         self,
         the_pass: Pass,
         model: OliveModelHandler,
-        data_root: str,
         output_model_path: str,
         point: Optional[Dict[str, Any]] = None,
     ) -> OliveModelHandler:
@@ -209,7 +206,7 @@ class OliveSystem(ABC):
         """
 
     @abstractmethod
-    def evaluate_model(self, model: OliveModelHandler, data_root: str, metrics: List[Metric]) -> Dict[str, Any]:
+    def evaluate_model(self, model: OliveModelHandler, metrics: List[Metric]) -> Dict[str, Any]:
         """
         Evaluate the model
         """
@@ -342,22 +339,16 @@ For popular huggingface dataset, we can wrap above data config with more concise
 {
     "huggingface_dataset_config": {
         "load_dataset_config": {
-            "params": {
-                "data_name":"glue",
-                "subset": "mrpc",
-                "split": "validation",
-            }
+            "data_name":"glue",
+            "subset": "mrpc",
+            "split": "validation"
         },
         "pre_process_data_config": {
-            "params": {
-                "input_cols": ["sentence1", "sentence2"],
-                "label_cols": ["label"],
-            }
+            "input_cols": ["sentence1", "sentence2"],
+            "label_col": "label"
         },
         "dataloader_config":{
-            "params": {
-                "batch_size": 1
-            }
+            "batch_size": 1
         }
     }
 }

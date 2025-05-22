@@ -58,14 +58,14 @@ class ManageAMLComputeCommand(BaseOliveCLICommand):
                 "azure-ai-ml is not installed. Please install azure-ai-ml packages to use this script."
             ) from None
 
-        logger.info("Running create new compute script...")
+        print("Running create new compute script...")
 
         ml_client = self.get_ml_client(
             self.args.aml_config_path, self.args.subscription_id, self.args.resource_group, self.args.workspace_name
         )
 
         if self.args.create:
-            logger.info("Creating compute %s...", self.args.compute_name)
+            print(f"Creating compute {self.args.compute_name}...")
             if self.args.vm_size is None:
                 raise ValueError("vm_size must be provided if operation is create")
             if self.args.location is None:
@@ -80,20 +80,16 @@ class ManageAMLComputeCommand(BaseOliveCLICommand):
                 idle_time_before_scale_down=self.args.idle_time_before_scale_down,
             )
             ml_client.begin_create_or_update(cluster_basic).result()
-            logger.info(
-                "Successfully created compute: %s at %s with vm_size:%s and "
-                "min_nodes=%d and max_nodes=%d and idle_time_before_scale_down=%d",
-                self.args.compute_name,
-                self.args.location,
-                self.args.vm_size,
-                self.args.min_nodes,
-                self.args.max_nodes,
-                self.args.idle_time_before_scale_down,
+            print(
+                f"Successfully created compute: {self.args.compute_name} at {self.args.location} "
+                f"with vm_size:{self.args.vm_size} and min_nodes={self.args.min_nodes} and "
+                f"max_nodes={self.args.max_nodes} and "
+                f"idle_time_before_scale_down={self.args.idle_time_before_scale_down}"
             )
         elif self.args.delete:
-            logger.info("Deleting compute %s...", self.args.compute_name)
+            print(f"Deleting compute {self.args.compute_name}...")
             ml_client.compute.begin_delete(self.args.compute_name).wait()
-            logger.info("Successfully deleted compute: %s", self.args.compute_name)
+            print(f"Successfully deleted compute: {self.args.compute_name}")
 
     @classmethod
     def get_ml_client(cls, aml_config_path: str, subscription_id: str, resource_group: str, workspace_name: str):
@@ -133,20 +129,20 @@ class ManageAMLComputeCommand(BaseOliveCLICommand):
                 "azure-identity is not installed. Please install azure-identity packages to use this command."
             ) from None
 
-        logger.info("Getting credentials for MLClient")
+        print("Getting credentials for MLClient")
         try:
             credential = AzureCliCredential()
             credential.get_token("https://management.azure.com/.default")
-            logger.info("Using AzureCliCredential")
+            print("Using AzureCliCredential")
         except Exception:
             try:
                 credential = DefaultAzureCredential()
                 # Check if given credential can get token successfully.
                 credential.get_token("https://management.azure.com/.default")
-                logger.info("Using DefaultAzureCredential")
+                print("Using DefaultAzureCredential")
             except Exception:
                 # Fall back to InteractiveBrowserCredential in case DefaultAzureCredential not work
                 credential = InteractiveBrowserCredential()
-                logger.info("Using InteractiveBrowserCredential")
+                print("Using InteractiveBrowserCredential")
 
         return credential

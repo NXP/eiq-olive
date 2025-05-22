@@ -3,26 +3,20 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 import logging
-from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Type, Union
 
 import onnx
 
+from olive.common.hf.mappings import MODEL_TYPE_MAPPING
+from olive.common.hf.wrapper import ModelWrapper
 from olive.common.utils import exclude_keys
 from olive.hardware.accelerator import AcceleratorSpec, Device
 from olive.model import ONNXModelHandler
-from olive.model.utils import (
-    HIDDEN_SIZE_NAMES,
-    MODEL_TYPE_MAPPING,
-    NUM_HEADS_NAMES,
-    NUM_KEY_VALUE_HEADS_NAMES,
-    resolve_onnx_path,
-)
+from olive.model.utils import resolve_onnx_path
 from olive.passes import Pass
 from olive.passes.onnx.common import get_external_data_config, model_proto_to_olive_model
-from olive.passes.pass_config import PassConfigParam
-from olive.strategy.search_parameter import Boolean, Categorical, Conditional
+from olive.passes.pass_config import BasePassConfig, PassConfigParam
 
 if TYPE_CHECKING:
     from onnxruntime.transformers.onnx_model import OnnxModel
@@ -82,9 +76,8 @@ class OrtTransformersOptimization(Pass):
                 description="Optimization options that turn on/off some fusions.",
             ),
             "opt_level": PassConfigParam(
-                type_=Any,
+                type_=int,
                 default_value=None,
-                searchable_values=Categorical([0, 1, 2, 99]),
                 description=(
                     "Graph optimization level of Onnx Runtime: "
                     "0 - disable all (default), 1 - basic, 2 - extended, 99 - all."
@@ -94,14 +87,6 @@ class OrtTransformersOptimization(Pass):
             "only_onnxruntime": PassConfigParam(
                 type_=bool,
                 default_value=False,
-                searchable_values=Conditional(
-                    parents=("opt_level",),
-                    support={
-                        (2,): Categorical([False]),
-                        (99,): Categorical([False]),
-                    },
-                    default=Boolean(),
-                ),
                 description=(
                     "Whether only use onnxruntime to optimize model, and no python fusion."
                     " Disable some optimizers that might cause failure in symbolic shape inference or attention fusion,"
@@ -150,39 +135,38 @@ class OrtTransformersOptimization(Pass):
         config.update(get_external_data_config())
         return config
 
-    def validate_search_point(
-        self, search_point: Dict[str, Any], accelerator_spec: AcceleratorSpec, with_fixed_value: bool = False
+    @classmethod
+    def validate_config(
+        cls,
+        config: Type[BasePassConfig],
+        accelerator_spec: AcceleratorSpec,
     ) -> bool:
+        if not super().validate_config(config, accelerator_spec):
+            return False
+
         from onnxruntime import __version__ as OrtVersion
         from packaging import version
 
-        if with_fixed_value:
-            search_point = self.config_at_search_point(search_point or {})
-        if search_point.get("float16"):
+        if config.float16:
             if accelerator_spec.execution_provider == "TensorrtExecutionProvider":
                 logger.info(
                     "TensorRT has its own float16 implementation, please avoid to use float16 in transformers "
-                    "optimization. Suggest to set 'trt_fp16_enable' as True in OrtPerfTuning."
+                    "optimization. Suggest to set 'trt_fp16_enable' as True in OrtSessionParamsTuning."
                 )
                 return False
             if accelerator_spec.execution_provider == "CPUExecutionProvider":
                 logger.info("CPUExecutionProvider does not support float16 very well, please avoid to use float16.")
                 return False
-        if not search_point.get("float16") and search_point.get("use_gqa"):
+        if not config.float16 and config.use_gqa:
             logger.info("use_gqa is only supported when float16 is True.")
             return False
-        if search_point.get("use_gpu") and accelerator_spec.execution_provider == "CPUExecutionProvider":
+        if config.use_gpu and accelerator_spec.execution_provider == "CPUExecutionProvider":
             logger.info("CPUExecutionProvider does not support GPU inference, please avoid to use use_gpu.")
             return False
-        if search_point.get("only_onnxruntime") and search_point.get("opt_level") <= 0:
+        if config.only_onnxruntime and config.opt_level <= 0:
             logger.info("Please specify a positive value for opt_level when only_onnxruntime is True")
             return False
-        if (
-            search_point.get("opt_level") == 0
-            and search_point.get("only_onnxruntime")
-            and search_point.get("num_heads") == 0
-            and search_point.get("hidden_size") == 0
-        ):
+        if config.opt_level == 0 and config.only_onnxruntime and config.num_heads == 0 and config.hidden_size == 0:
             if version.parse(OrtVersion) <= version.parse("1.16.0"):
                 logger.info(
                     "Ignore this search point because the issue https://github.com/microsoft/onnxruntime/issues/17254"
@@ -221,14 +205,14 @@ class OrtTransformersOptimization(Pass):
         run_config["optimization_options"] = fusion_options
 
     def _run_for_config(
-        self, model: ONNXModelHandler, data_root: str, config: Dict[str, Any], output_model_path: str
+        self, model: ONNXModelHandler, config: Type[BasePassConfig], output_model_path: str
     ) -> ONNXModelHandler:
         from onnxruntime.transformers import optimizer as transformers_optimizer
 
-        num_kv_heads = config["num_key_value_heads"]
+        num_kv_heads = config.num_key_value_heads
 
         # start with a copy of the config
-        run_config = deepcopy(config)
+        run_config = config.dict()
         keys_to_remove = [
             "float16",
             "keep_io_types",
@@ -243,43 +227,43 @@ class OrtTransformersOptimization(Pass):
         run_config = exclude_keys(run_config, keys_to_remove)
 
         if model.model_attributes:
-            model_attributes = model.model_attributes
-            input_model_type = model_attributes.get("model_type")
-            if input_model_type:
-                model_type = MODEL_TYPE_MAPPING.get(input_model_type, input_model_type)
-            else:
-                model_type = None
+            model_wrapper = ModelWrapper(model.model_attributes)
+
+            model_type = MODEL_TYPE_MAPPING.get(model_wrapper.model_type, model_wrapper.model_type)
             if not run_config["model_type"] and model_type:
                 logger.debug("model_type is set to %s from model attributes", model_type)
             run_config["model_type"] = run_config["model_type"] or model_type
-            if run_config["num_heads"] == 0:
-                for num_heads_name in NUM_HEADS_NAMES:
-                    if num_heads_name in model_attributes:
-                        run_config["num_heads"] = model_attributes[num_heads_name]
-                        logger.debug("num_heads is set to %d from model attributes", run_config["num_heads"])
-                        break
-            if run_config["hidden_size"] == 0:
-                for hidden_size_name in HIDDEN_SIZE_NAMES:
-                    if hidden_size_name in model_attributes:
-                        run_config["hidden_size"] = model_attributes[hidden_size_name]
-                        logger.debug("hidden_size is set to %d from model attributes", run_config["hidden_size"])
-                        break
-            if num_kv_heads == 0:
-                for num_key_value_heads_name in NUM_KEY_VALUE_HEADS_NAMES:
-                    if num_key_value_heads_name in model_attributes:
-                        num_kv_heads = model_attributes[num_key_value_heads_name]
-                        break
+            if run_config["num_heads"] == 0 and model_wrapper.num_attention_heads:
+                run_config["num_heads"] = model_wrapper.num_attention_heads
+                logger.debug("num_heads is set to %d from model attributes", run_config["num_heads"])
+            if run_config["hidden_size"] == 0 and model_wrapper.hidden_size:
+                run_config["hidden_size"] = model_wrapper.hidden_size
+                logger.debug("hidden_size is set to %d from model attributes", run_config["hidden_size"])
+            if num_kv_heads == 0 and model_wrapper.num_key_value_heads:
+                num_kv_heads = model_wrapper.num_key_value_heads
 
         if run_config["model_type"] is None or run_config["model_type"] not in transformers_optimizer.MODEL_TYPES:
-            raise ValueError(
-                f"Unsupported model type: {run_config['model_type']}, please select one from "
-                f"[{', '.join(transformers_optimizer.MODEL_TYPES.keys())}] which need to be set under "
-                "OrtTransformersOptimization.config"
+            logger.warning(
+                "Unsupported model type: %s, will skip this pass. Please select one from "
+                "[%s] which need to be set under "
+                "OrtTransformersOptimization.config",
+                run_config["model_type"],
+                ", ".join(transformers_optimizer.MODEL_TYPES),
             )
+            return model
+        if run_config["model_type"] == "phi":
+            onnx_model = onnx.load(model.model_path, load_external_data=False)
+            if not onnx_model.functions:
+                logger.debug(
+                    "Model type is inferred as phi, but no functions are found in the model. It is not a dynamo"
+                    " exported model. Setting the model type to bert."
+                )
+                run_config["model_type"] = "bert"
+            del onnx_model
 
         output_model_path = resolve_onnx_path(output_model_path, Path(model.model_path).name)
 
-        optimization_options = config["optimization_options"]
+        optimization_options = config.optimization_options
 
         if optimization_options:
             self._set_fusion_options(run_config)
@@ -307,22 +291,22 @@ class OrtTransformersOptimization(Pass):
 
         optimizer = transformers_optimizer.optimize_model(input=model.model_path, **run_config)
 
-        if config["float16"]:
+        if config.float16:
             optimizer.convert_float_to_float16(
-                keep_io_types=config["keep_io_types"],
-                op_block_list=config["force_fp32_ops"],
-                node_block_list=config["force_fp32_nodes"],
-                force_fp16_inputs=config["force_fp16_inputs"],
+                keep_io_types=config.keep_io_types,
+                op_block_list=config.force_fp32_ops,
+                node_block_list=config.force_fp32_nodes,
+                force_fp16_inputs=config.force_fp16_inputs,
             )
 
-            if config["use_gqa"]:
+            if config.use_gqa:
                 world_size = model.model_attributes.get("world_size", 1) if model.model_attributes is not None else 1
                 optimizer = self._replace_mha_with_gqa(optimizer, kv_num_heads=num_kv_heads, world_size=world_size)
                 optimizer.prune_graph()
                 # add allow_remove_graph_inputs to pass config
                 optimizer.update_graph(allow_remove_graph_inputs=True)
 
-        if config["input_int32"]:
+        if config.input_int32:
             optimizer.change_graph_inputs_to_int32()
 
         # Topologically sort the graph at the end since previous optimizations may have broken it
