@@ -822,12 +822,12 @@ class OnnxMatMul4Quantizer(Pass):
                     # get value from pass config
                     algo_config[key] = kwargs[key]
             if config.algorithm == "GPTQ":
-                algo_config["calibration_data_reader"] = get_calibration_dataloader(config)
+                algo_config["calibration_data_reader"] = get_calibration_dataloader(config).dataloader
             kwargs["algo_config"] = woq_config_class(**algo_config)
         else:
             kwargs["algo_config"] = None
 
-        quant = MatMul4BitsQuantizer(model.load_model(), **kwargs)
+        quant = MatMul4BitsQuantizer(model.model_path, **kwargs)
         quant.process()
         # topologically sort the graph at the end since previous optimizations may have broken it
         quant.model.topological_sort()
