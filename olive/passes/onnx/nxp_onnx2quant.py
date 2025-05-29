@@ -112,7 +112,6 @@ class ONNX2Quant(Pass):
 
 
             calibration_dataset_mapping = self._create_calibration_dataset_mapping(Path(config["calibration_dataset"]))
-            print(calibration_dataset_mapping)
             calibration_data_reader = NpyCalibrationDataReader(calibration_dataset_mapping)
             quantization_config = QuantizationConfig(calibration_data_reader, config)
             onnx_model = onnx.load(model.model_path)
