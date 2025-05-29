@@ -15,11 +15,11 @@ import onnx
 import logging
 
 from onnx2tflite.src.logger import conversion_log, MessageImportance
-from onnx2quant.__main__ import _parse_calibration_dataset_mapping
 from onnx2quant.__main__ import NpyCalibrationDataReader
 from onnx2quant.quantization_config import QuantizationConfig
 from onnx2quant.qdq_quantization import QDQQuantizer
 import onnx2tflite.src.converter.convert as convert
+from olive.common.config_utils import ParamCategory
 
 logger = logging.getLogger(__name__)
 
@@ -41,13 +41,12 @@ class ONNX2Quant(Pass):
                         "can produce invalid models because opset is forcefully updated to version 11. This applies "
                         "especially to models with operators: Clip, Dropout, BatchNormalization and Split."
         ),
-        "calibration_dataset_mapping": PassConfigParam(
-            type_=list[str],
+        "calibration_dataset": PassConfigParam(
+            type_=str,
+            category= ParamCategory.PATH,
             required=True,
-            description="Mapping between model input and calibration dataset directory with *.npy files. Value must "
-                        "be in format '<input_name>;<path_to_dir>', for example 'input_1;data_3_224/'. Argument "
-                        "can be used multiple times to specify multiple inputs for the model. In case model"
-                        "has semicolon in input tensor's name, it has to be renamed."
+            description="Path to a calibration dataset directory. The directory should contain subdirectories "
+                        "for each model input. Each subdirectory then contains *.npy files."
         ),
         "symbolic_dimension_into_static": PassConfigParam(
             type_=list[str],
@@ -87,6 +86,11 @@ class ONNX2Quant(Pass):
                 fn = _get_logging_fn(MessageImportance(log["importance"]))
                 fn(_parse_log(log_category, log))
 
+    def _create_calibration_dataset_mapping(self, dataset_path: Path) -> dict[str,str]:
+        return {directory.name : str(directory) for directory in dataset_path.iterdir()
+                if directory.is_dir()}
+
+
     def _run_for_config(
         self,
         model: ONNXModelHandler,
@@ -107,7 +111,8 @@ class ONNX2Quant(Pass):
                 config["input_shapes_mapping"] = convert.parse_input_shape_mapping(config["set_input_shape"])
 
 
-            calibration_dataset_mapping = _parse_calibration_dataset_mapping(config["calibration_dataset_mapping"])
+            calibration_dataset_mapping = self._create_calibration_dataset_mapping(Path(config["calibration_dataset"]))
+            print(calibration_dataset_mapping)
             calibration_data_reader = NpyCalibrationDataReader(calibration_dataset_mapping)
             quantization_config = QuantizationConfig(calibration_data_reader, config)
             onnx_model = onnx.load(model.model_path)

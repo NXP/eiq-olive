@@ -17,21 +17,23 @@ from pathlib import Path
 
 class randomCalibrationDataset:
 
-    def __init__(self, shape, path="tmp_calibration_dataset", np_type=np.float32, items_count=5):
+    def __init__(self, shape, input_name, path="tmp_calibration_dataset", np_type=np.float32, items_count=5):
         self.path = path
         self.shape = shape
         self.np_type = np_type
         self.items_count = items_count
+        self.input_name = input_name
 
     def __enter__(self):
 
-        if os.path.exists(self.path):
+        if os.path.exists(os.path.join(self.path, self.input_name)):
             raise Exception(f"Directory with name '{self.path}' already exists!")
         Path.mkdir(self.path)
+        Path.mkdir(os.path.join(self.path, self.input_name))
 
         for x in range(self.items_count):
             input_vector = np.random.random(self.shape).reshape(self.shape).astype(self.np_type)
-            np.save(os.path.join(self.path, f"{x}.npy"), input_vector)
+            np.save(os.path.join(self.path, self.input_name,  f"{x}.npy"), input_vector)
 
         return self.path
 
@@ -52,11 +54,11 @@ def test_onnx2quant_with_minimum_arguments(tmp_path):
     with open("input_model.onnx", "wb") as f:
         f.write(model)
     config = {
-            "calibration_dataset_mapping": ["input;tmp_calibration_dataset"],
+            "calibration_dataset": "tmp_calibration_dataset",
             "allow_opset_10_and_lower": True
         }
     p = create_pass_from_dict(ONNX2Quant, config, disable_search=True)
-    with randomCalibrationDataset((1,1)):
+    with randomCalibrationDataset((1,1), "input"):
         output_folder = str(tmp_path)
         onnx_model = p.run(input_model, output_folder)
 
@@ -71,14 +73,14 @@ def test_onnx2quant_all_parameters_defined(tmp_path):
     with open("input_model.onnx", "wb") as f:
         f.write(model)
     config = {
-            "calibration_dataset_mapping": ["input;tmp_calibration_dataset"],
+            "calibration_dataset": "tmp_calibration_dataset",
             "allow_opset_10_and_lower": True,
             "per_channel": True,
             "symbolic_dimension_into_static": ["batch:1"],
             "set_input_shape":["input:(1,1)"]
         }
     p = create_pass_from_dict(ONNX2Quant, config, disable_search=True)
-    with randomCalibrationDataset((1,1)):
+    with randomCalibrationDataset((1,1), "input"):
         output_folder = str(tmp_path)
         onnx_model = p.run(input_model, output_folder)
 
@@ -93,14 +95,14 @@ def test_onnx2quant_invalid_calibration_dataset_mapping(tmp_path):
     with open("input_model.onnx", "wb") as f:
         f.write(model)
     config = {
-            "calibration_dataset_mapping": ["input:tmp_calibration_dataset"],
+            "calibration_dataset": "tmp_calibration",
             "allow_opset_10_and_lower": True,
         }
     p = create_pass_from_dict(ONNX2Quant, config, disable_search=True)
 
-    with randomCalibrationDataset((1,1)):
+    with randomCalibrationDataset((1,1), "input"):
         output_folder = str(tmp_path)
-        with pytest.raises(Exception, match=r"in invalid format. Must be '<input_name>;<path_to_dataset>'"):
+        with pytest.raises(Exception, match=r"No such file or directory"):
             p.run(input_model, output_folder)
 
 def test_onnx2quant_invalid_symbolic_dim_into_static(tmp_path):
@@ -112,13 +114,13 @@ def test_onnx2quant_invalid_symbolic_dim_into_static(tmp_path):
     with open("input_model.onnx", "wb") as f:
         f.write(model)
     config = {
-            "calibration_dataset_mapping": ["input;tmp_calibration_dataset"],
+            "calibration_dataset": "tmp_calibration_dataset",
             "allow_opset_10_and_lower": True,
             "symbolic_dimension_into_static": ["batch:e"]
         }
     p = create_pass_from_dict(ONNX2Quant, config, disable_search=True)
 
-    with randomCalibrationDataset((1,1)):
+    with randomCalibrationDataset((1,1), "input"):
         output_folder = str(tmp_path)
         with pytest.raises(Exception, match=r"in invalid format. Must be '<dim_name>:<dimension_size>'"):
             p.run(input_model, output_folder)
@@ -132,13 +134,13 @@ def test_onnx2quant_invalid_input_shape(tmp_path):
     with open("input_model.onnx", "wb") as f:
         f.write(model)
     config = {
-            "calibration_dataset_mapping": ["input;tmp_calibration_dataset"],
+            "calibration_dataset": "tmp_calibration_dataset",
             "allow_opset_10_and_lower": True,
             "set_input_shape": ["input:(a,b,c,d)"]
         }
     p = create_pass_from_dict(ONNX2Quant, config, disable_search=True)
 
-    with randomCalibrationDataset((1,1)):
+    with randomCalibrationDataset((1,1), "input"):
         output_folder = str(tmp_path)
         with pytest.raises(Exception, match=r"in invalid format. Must be <dim_name>:\(<dim_0>,<dim_1>,...\)"):
             p.run(input_model, output_folder)
