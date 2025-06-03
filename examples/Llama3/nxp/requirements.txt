@@ -6,4 +6,4 @@ onnxruntime_extensions
 optimum==1.25.3
 tabulate
 transformers==4.49.0
-lm_eval==0.4.8
+lm_eval==0.4.7
