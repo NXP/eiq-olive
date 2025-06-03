@@ -48,11 +48,6 @@ def test_onnx2quant_pass_no_config():
 def test_onnx2quant_with_minimum_arguments(tmp_path):
     """Test the pass with only required argument."""
     input_model = get_onnx_model_config().create_model()
-    with open(input_model.model_path, "rb") as f:
-        model = f.read()
-
-    with open("input_model.onnx", "wb") as f:
-        f.write(model)
     config = {
             "calibration_dataset": "tmp_calibration_dataset",
             "allow_opset_10_and_lower": True
@@ -67,11 +62,6 @@ def test_onnx2quant_with_minimum_arguments(tmp_path):
 def test_onnx2quant_all_parameters_defined(tmp_path):
     """Test the pass with all parameters defined."""
     input_model = get_onnx_model_config().create_model()
-    with open(input_model.model_path, "rb") as f:
-        model = f.read()
-
-    with open("input_model.onnx", "wb") as f:
-        f.write(model)
     config = {
             "calibration_dataset": "tmp_calibration_dataset",
             "allow_opset_10_and_lower": True,
@@ -86,14 +76,9 @@ def test_onnx2quant_all_parameters_defined(tmp_path):
 
     assert Path(onnx_model.model_path).exists()
 
-def test_onnx2quant_invalid_calibration_dataset_mapping(tmp_path):
+def test_onnx2quant_invalid_calibration_dataset_path(tmp_path):
     """Test that the pass with wrong calibration_dataset_mapping configuration raises an error."""
     input_model = get_onnx_model_config().create_model()
-    with open(input_model.model_path, "rb") as f:
-        model = f.read()
-
-    with open("input_model.onnx", "wb") as f:
-        f.write(model)
     config = {
             "calibration_dataset": "tmp_calibration",
             "allow_opset_10_and_lower": True,
@@ -105,14 +90,23 @@ def test_onnx2quant_invalid_calibration_dataset_mapping(tmp_path):
         with pytest.raises(Exception, match=r"No such file or directory"):
             p.run(input_model, output_folder)
 
+def test_onnx2quant_invalid_calibration_dataset_input_name(tmp_path):
+    """Test that the pass with wrong input name in calibration dataset path raises an error."""
+    input_model = get_onnx_model_config().create_model()
+    config = {
+            "calibration_dataset": "tmp_calibration_dataset",
+            "allow_opset_10_and_lower": True,
+        }
+    p = create_pass_from_dict(ONNX2Quant, config, disable_search=True)
+
+    with randomCalibrationDataset((1,1), "x"):
+        output_folder = str(tmp_path)
+        with pytest.raises(Exception, match=r"are missing from input feed"):
+            p.run(input_model, output_folder)
+
 def test_onnx2quant_invalid_symbolic_dim_into_static(tmp_path):
     """Test that the pass with wrong symbolic_dim_into_static configuration raises an error."""
     input_model = get_onnx_model_config().create_model()
-    with open(input_model.model_path, "rb") as f:
-        model = f.read()
-
-    with open("input_model.onnx", "wb") as f:
-        f.write(model)
     config = {
             "calibration_dataset": "tmp_calibration_dataset",
             "allow_opset_10_and_lower": True,
@@ -128,11 +122,6 @@ def test_onnx2quant_invalid_symbolic_dim_into_static(tmp_path):
 def test_onnx2quant_invalid_input_shape(tmp_path):
     """Test that the pass raises an exception when input shape is invalid."""
     input_model = get_onnx_model_config().create_model()
-    with open(input_model.model_path, "rb") as f:
-        model = f.read()
-
-    with open("input_model.onnx", "wb") as f:
-        f.write(model)
     config = {
             "calibration_dataset": "tmp_calibration_dataset",
             "allow_opset_10_and_lower": True,
