@@ -20,7 +20,7 @@ from olive.model import OliveModelHandler
 from optimum.onnxruntime import ORTModelForCausalLM
 
 
-model_id = "Qwen/Qwen2.5-0.5B"
+model_id = "Qwen/Qwen2.5-0.5B-Instruct"
 config = AutoConfig.from_pretrained(model_id)
 
 def tokenize_function(examples):
@@ -105,7 +105,7 @@ def eval_wt2_ppl(model, device, execution_provider, tasks=["wikitext"], batch_si
     from neural_compressor.evaluation.lm_eval import evaluate, LMEvalParser
 
     model_dir = Path(model.model_path).resolve().parent
-    tokenizer = "Qwen/Qwen2.5-0.5B"
+    tokenizer = "Qwen/Qwen2.5-0.5B-Instruct"
 
     if model.framework == Framework.ONNX:
         output_config_file = model_dir / "config.json"

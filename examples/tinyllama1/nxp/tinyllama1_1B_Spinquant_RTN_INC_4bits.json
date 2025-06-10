@@ -38,7 +38,7 @@
         "quantization": {
           "type": "SpinQuant",
           "rotate_mode": "hadamard",
-          "a_bits": 4
+          "a_bits": 8
         },
         "convert": { "type": "ModelBuilder", "precision": "fp32" },
         "quantization_rtn": {
