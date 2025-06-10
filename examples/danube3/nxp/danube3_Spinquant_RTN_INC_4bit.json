@@ -39,7 +39,7 @@
           "rotate_mode": "hadamard",
           "a_bits": 8
         },
-        "convert": { "type": "ModelBuilder", "precision": "fp32" },
+        "convert": { "type": "ModelBuilder", "precision": "fp32", "override_search_opt": false },
         "quantization_rtn": {
             "type": "IncStaticQuantization",
             "user_script": "user_script.py",
