@@ -36,12 +36,12 @@
     },
     "passes": {
         "quantization": {
-          "type": "SpinQuant",
-          "rotate_mode": "hadamard",
-          "a_bits": 8
+            "type": "SpinQuant",
+            "rotate_mode": "hadamard",
+            "a_bits": 8
         },
         "convert": { "type": "ModelBuilder", "precision": "fp32", "override_search_opt": false },
-	"quantization_rtn": {
+        "quantization_rtn": {
             "type": "IncStaticQuantization",
             "approach": "weight_only",
             "weight_only_config": { "bits": 4, "algorithm": "RTN", "group_size" : 32, "scheme" : "sym" },
@@ -79,5 +79,5 @@
     "host": "local_system",
     "target": "local_system",
     "cache_dir": "cache",
-    "output_dir": "models/llama3_spinquant"
+    "output_dir": "models/llama3_spinquant_inc"
 }

@@ -2,7 +2,7 @@
 This folder contains a sample use case of Olive to optimize and quantize [google/gemma-3-1b-it-qat-int4-unquantized](https://huggingface.co/google/gemma-3-1b-it-qat-int4-unquantized) model using existing tools.
 
 ## Quantization Workflows
-- CPU: *PyTorch Model -> SpinQuant -> Onnx Model -> Intel® Neural Compressor 4 bit Quantized Onnx Model -> Intel® Neural Compressor Dynamic 8 bit lm_head layer*
+- CPU: *PyTorch Model -> Onnx Model -> Intel® Neural Compressor 4 bit Quantized Onnx Model -> Intel® Neural Compressor Dynamic 8 bit lm_head layer*
 
 ## Config file 
 The workflow in Config file: [gemma3_1B_RTN_INC_4bits.json](gemma3_1B_RTN_INC_4bits.json) executes the above workflow.

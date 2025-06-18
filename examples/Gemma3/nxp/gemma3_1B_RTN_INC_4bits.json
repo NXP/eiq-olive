@@ -35,7 +35,7 @@
         }
     },
     "passes": {
-	"convert": { "type": "ModelBuilder", "precision": "fp32", "override_search_opt": false },
+        "convert": { "type": "ModelBuilder", "precision": "fp32", "override_search_opt": false },
         "quantization_rtn": {
             "type": "IncStaticQuantization",
             "approach": "weight_only",
@@ -73,5 +73,5 @@
     "host": "local_system",
     "target": "local_system",
     "cache_dir": "cache",
-    "output_dir": "models/gemma3_static_rtn"
+    "output_dir": "models/gemma3_inc_static_rtn"
 }

@@ -28,7 +28,7 @@ def tokenize_function(examples):
     return tokenizer(examples["text"])
 
 # We hardcode the input names related to the KV cache for the KV dataloader
-input_names = sum([[f"past_key_values.{j}.key", f"past_key_values.{j}.value"] for j in range(16)],[])
+input_names = sum([[f"past_key_values.{j}.key", f"past_key_values.{j}.value"] for j in range(config.num_hidden_layers)],[])
 
 ## Dataloader for INCQuantization, approach = static. In particular, we need to create and pass dummy past_key_values for the onnx decoder.
 class KVDataloader:

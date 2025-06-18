@@ -79,5 +79,5 @@
     "host": "local_system",
     "target": "local_system",
     "cache_dir": "cache",
-    "output_dir": "models/qwen2_spinquant"
+    "output_dir": "models/qwen2_spinquant_inc"
 }
