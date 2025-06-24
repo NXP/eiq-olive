@@ -11,7 +11,7 @@ The workflow in Config file: [tinyllama1_1B_Spinquant_RTN_INC_4bits.json](tinyll
 ```bash
 python3.10 -m venv olive_env
 source olive_env/bin/activate
-cd Olive
+cd <Olive_directory_path>
 pip install -e .
 cd examples/tinyllama1/nxp/
 pip install -r requirements.txt

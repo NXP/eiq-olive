@@ -11,7 +11,7 @@ The workflow in Config file: [qwen2_5-0.5B_Spinquant_RTN_INC_4bit.json](qwen2_5-
 ```bash
 python3.10 -m venv olive_env
 source olive_env/bin/activate
-cd Olive
+cd <Olive_directory_path>
 pip install -e .
 cd examples/Qwen2_5/nxp/
 pip install -r requirements.txt

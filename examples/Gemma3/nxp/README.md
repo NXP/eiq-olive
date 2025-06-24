@@ -11,7 +11,7 @@ The workflow in Config file: [gemma3_1B_RTN_INC_4bits.json](gemma3_1B_RTN_INC_4b
 ```bash
 python3.10 -m venv olive_env
 source olive_env/bin/activate
-cd Olive
+cd <Olive_directory_path>
 pip install -e .
 cd examples/Gemma3/nxp/
 pip install -r requirements.txt
