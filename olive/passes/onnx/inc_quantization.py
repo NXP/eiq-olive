@@ -143,6 +143,13 @@ _inc_quantization_config = {
             INC weight only quantization config.
         """,
     ),
+    "op_name_dict": PassConfigParam(
+        type_=dict,
+        default_value={},
+        description="""
+            INC weight only quantization config.
+        """,
+    ),
 }
 
 _inc_static_dataloader_config = {
@@ -502,8 +509,6 @@ class IncQuantization(Pass):
 
         run_config["op_type_dict"] = (
             run_config["op_type_dict"] or {".*": {"weight": weight_only_config}}
-            if run_config["approach"] == "weight_only"
-            else None
         )
 
         ptq_config = PostTrainingQuantConfig(

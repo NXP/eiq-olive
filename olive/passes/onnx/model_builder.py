@@ -63,6 +63,12 @@ class ModelBuilder(Pass):
                 required=False,
                 description="Whether to export the model or generate required metadata only.",
             ),
+            "override_search_opt": PassConfigParam(
+                type_=bool,
+                default_value=True,
+                required=False,
+                description="Whether to override or not the default search configuration with the one from user. Default true.",
+            ),
             "search": PassConfigParam(
                 type_=Dict[str, Any], required=False, description="Search options to use for generate loop."
             ),
@@ -242,14 +248,14 @@ class ModelBuilder(Pass):
             raise
 
         # Override default search options with ones from user config
-        genai_config_filepath = str(output_model_filepath.parent / "genai_config.json")
-        with open(genai_config_filepath) as istrm:
-            genai_config = json.load(istrm)
+        if config.override_search_opt:
+            genai_config_filepath = str(output_model_filepath.parent / "genai_config.json")
+            with open(genai_config_filepath) as istrm:
+                genai_config = json.load(istrm)
 
-        genai_config["search"] = {**(genai_config.get("search") or {}), **(config.search or {})}
-
-        with open(genai_config_filepath, "w") as ostrm:
-            json.dump(genai_config, ostrm, indent=4)
+            genai_config["search"] = {**(genai_config.get("search") or {}), **(config.search or {})}
+            with open(genai_config_filepath, "w") as ostrm:
+                json.dump(genai_config, ostrm, indent=4)
 
         # Save HfModel config
         if isinstance(model, HfModelHandler):
