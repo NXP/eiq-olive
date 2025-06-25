@@ -94,8 +94,8 @@ class ONNX2Quant(Pass):
 
     def _is_input_name_valid_directory(self, input_name: str) -> bool:
         """Determine if model input name can be created as directory."""
-        # Exclude also control characters (they are allowed in Linux, but dfficult to handle).
-        return not (not input_name or input_name in {".", ".."} or "/" in input_name or not input_name.isprintable())
+        # Exclude also control characters (they are allowed in Linux, but difficult to handle).
+        return input_name and input_name not in {".", ".."} and "/" not in input_name and input_name.isprintable()
 
     def _run_for_config(
         self,
@@ -110,7 +110,7 @@ class ONNX2Quant(Pass):
         model_inputs_valid = {
             _input.name: self._is_input_name_valid_directory(_input.name) for _input in onnx_model.graph.input
         }
-        invalid_inputs = [name for name, result in model_inputs_valid.items() if result is False]
+        invalid_inputs = [name for name, result in model_inputs_valid.items() if not result]
         if invalid_inputs:
             err_msg = (
                 f"These model input names cannot be used as a directory name for calibration dataset: {invalid_inputs}."
