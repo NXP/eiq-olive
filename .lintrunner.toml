@@ -141,7 +141,8 @@ command = [
 code = 'SPACES'
 include_patterns = ['**']
 exclude_patterns = [
-  '**/*.json'
+  '**/*.json',
+  '**/*.tflite'
 ]
 command = [
   'python',
@@ -167,7 +168,8 @@ exclude_patterns = [
   '.lintrunner.toml',
   '**/Makefile',
   '**/*.bat',
-  '**/*.json'
+  '**/*.json',
+  '**/*.tflite'
 ]
 command = [
   'python',
@@ -216,7 +218,8 @@ include_patterns = ['**']
 exclude_patterns = [
   '**/*.ipynb',
   '**/*.json',
-  '**/Makefile'
+  '**/Makefile',
+  '**/*.tflite'
 ]
 command = [
   'python',
