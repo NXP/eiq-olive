@@ -107,10 +107,15 @@ class ONNX2Quant(Pass):
             raise NotImplementedError(f"Unsupported model handler type: {type(model)}")
 
         onnx_model = model.load_model()
-        model_inputs_valid = {
-            _input.name: self._is_input_name_valid_directory(_input.name) for _input in onnx_model.graph.input
-        }
-        invalid_inputs = [name for name, result in model_inputs_valid.items() if not result]
+        initializers = [i.name for i in onnx_model.graph.initializer]
+        invalid_inputs = []
+
+        for inp in onnx_model.graph.input:
+            if inp.name in initializers:
+                continue
+            if not self._is_input_name_valid_directory(inp.name):
+                invalid_inputs.append(inp.name)
+
         if invalid_inputs:
             err_msg = (
                 f"These model input names cannot be used as a directory name for calibration dataset: {invalid_inputs}."
