@@ -28,11 +28,12 @@ class NeutronConversion(Pass):
                 type_=str,
                 required=True,
                 description="Target board, where converted model will be deployed."
-                "Currently supported targets are 'imxrt700', 'imx95'.",
+                "Currently supported targets are 'imxrt700', 'imx95'.",  # Mention only those targets we support.
             ),
         }
 
-    def _get_neutron_targets(self) -> list[str]:
+    def get_neutron_targets(self) -> list[str]:
+        """Return names of all neutron targets that converter supports right now."""
         return ["imxrt700", "mcxn54", "mcxn94x", "imx95", "imx943", "s32k5", "s32n79"]
 
     def _run_for_config(
@@ -46,7 +47,7 @@ class NeutronConversion(Pass):
 
         config = dict(config)
         neutron_target = config["target"]
-        if neutron_target not in self._get_neutron_targets():
+        if neutron_target not in self.get_neutron_targets():
             raise ValueError(f"{neutron_target} is not valid neutron target.")
 
         neutron_converter_modules = [

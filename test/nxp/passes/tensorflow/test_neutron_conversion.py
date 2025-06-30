@@ -1,3 +1,10 @@
+#
+# Copyright 2025 NXP
+#
+# License: LA_OPT_NXP_Software_License
+# See the LICENSE_LA_OPT_NXP_Software_License for more details.
+#
+
 from pathlib import Path
 from pkgutil import ModuleInfo
 from unittest.mock import patch
