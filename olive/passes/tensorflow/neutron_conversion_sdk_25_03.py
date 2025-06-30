@@ -5,11 +5,11 @@
 # See the LICENSE_LA_OPT_NXP_Software_License for more details.
 #
 
-import importlib
 import logging
-import pkgutil
 from pathlib import Path
 from typing import Dict, Type
+
+import neutron_converter_SDK_25_03.neutron_converter as neutron_converter
 
 from olive.hardware import AcceleratorSpec
 from olive.model.handler.tensorflow import TFLiteModelHandler
@@ -19,7 +19,7 @@ from olive.passes.pass_config import BasePassConfig, PassConfigParam
 logger = logging.getLogger(__name__)
 
 
-class NeutronConversion(Pass):
+class NeutronConversionSDK2503(Pass):
 
     @classmethod
     def _default_config(cls, accelerator_spec: AcceleratorSpec) -> Dict[str, PassConfigParam]:
@@ -49,15 +49,6 @@ class NeutronConversion(Pass):
         neutron_target = config["target"]
         if neutron_target not in self.get_neutron_targets():
             raise ValueError(f"{neutron_target} is not valid neutron target.")
-
-        neutron_converter_modules = [
-            module.name for module in pkgutil.iter_modules() if module.name.startswith("neutron_converter")
-        ]
-
-        if len(neutron_converter_modules) == 0:
-            logger.error("NeutronConverter: No neutron_converter module installed.")
-            raise ImportError("NeutronConverter: No neutron_converter module installed.")
-        neutron_converter = importlib.import_module(f"{neutron_converter_modules[0]}.neutron_converter")
 
         # Read model as bytes.
         with Path.open(Path(model.model_path), "rb") as mp:

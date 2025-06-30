@@ -199,3 +199,11 @@ classmethod-decorators = ["classmethod", "olive.common.pydantic_v1.validator", "
 "examples/directml/llm/chat_app/**" = ["TID252", "UP006", "T201"]
 "olive/cli/**" = ["T201"]
 "olive/**/hadamard_utils.py" = ["E501"]
+
+[tool.coverage.run]
+omit = [
+    # omit files in /tmp
+    "/tmp/*",
+    # omit tflite model for testing
+    "/test/nxp/resources/*"
+]
