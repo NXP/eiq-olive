@@ -9,8 +9,6 @@ import logging
 from pathlib import Path
 from typing import Dict, Type
 
-import neutron_converter_SDK_25_03.neutron_converter as neutron_converter
-
 from olive.hardware import AcceleratorSpec
 from olive.model.handler.tensorflow import TFLiteModelHandler
 from olive.passes.olive_pass import Pass
@@ -42,8 +40,11 @@ class NeutronConversionSDK2503(Pass):
         config: Type[BasePassConfig],
         output_model_path: str,
     ) -> TFLiteModelHandler:
+
         if not isinstance(model, TFLiteModelHandler):
             raise NotImplementedError(f"Unsupported model handler type: {type(model)}")
+
+        import neutron_converter_SDK_25_03.neutron_converter as neutron_converter
 
         config = dict(config)
         neutron_target = config["target"]
