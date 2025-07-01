@@ -4,8 +4,7 @@ omit =
     olive/passes/pytorch/pytorch_lightning_utils.py
     olive/passes/pytorch/qat_utils.py
     olive/systems/docker/eval.py
-    tmp/*
-    /test/nxp/resources/*
+    /tmp/*
 
 [report]
 exclude_lines =
