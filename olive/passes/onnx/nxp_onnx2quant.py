@@ -92,6 +92,11 @@ class ONNX2Quant(Pass):
     def _create_calibration_dataset_mapping(self, dataset_path: Path) -> dict[str, str]:
         return {directory.name: str(directory) for directory in dataset_path.iterdir() if directory.is_dir()}
 
+    def _is_input_name_valid_directory(self, input_name: str) -> bool:
+        """Determine if model input name can be created as directory."""
+        # Exclude also control characters (they are allowed in Linux, but difficult to handle).
+        return input_name and input_name not in {".", ".."} and "/" not in input_name and input_name.isprintable()
+
     def _run_for_config(
         self,
         model: ONNXModelHandler,
@@ -100,6 +105,24 @@ class ONNX2Quant(Pass):
     ) -> ONNXModelHandler:
         if not isinstance(model, ONNXModelHandler):
             raise NotImplementedError(f"Unsupported model handler type: {type(model)}")
+
+        onnx_model = model.load_model()
+        initializers = [i.name for i in onnx_model.graph.initializer]
+        invalid_inputs = []
+
+        for inp in onnx_model.graph.input:
+            if inp.name in initializers:
+                continue
+            if not self._is_input_name_valid_directory(inp.name):
+                invalid_inputs.append(inp.name)
+
+        if invalid_inputs:
+            err_msg = (
+                f"These model input names cannot be used as a directory name for calibration dataset: {invalid_inputs}."
+                "Please rename the input."
+            )
+            logger.error(err_msg)
+            raise ValueError(err_msg)
 
         config = dict(config)
         try:

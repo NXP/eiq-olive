@@ -47,7 +47,7 @@ class randomCalibrationDataset:
         shutil.rmtree(self.path)
 
 
-def create_onnx_model_with_multiple_inputs(path):
+def create_onnx_model_with_multiple_inputs(path, input_name1 = "x", input_name2="y"):
     def get_onnx_model_multiple_inputs():
         x_shape = [2, 10]
         y_shape = [2, 10]
@@ -55,13 +55,13 @@ def create_onnx_model_with_multiple_inputs(path):
         # Define the graph
         graph = onnx.helper.make_graph(
             nodes=[
-                onnx.helper.make_node("Add", ["x", "y"], ["z"]),
+                onnx.helper.make_node("Add", [input_name1, input_name2], ["z"]),
                 onnx.helper.make_node("Flatten", ["z"], ["output"]),
             ],
             name="graph-sub",
             inputs=[
-                onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, x_shape),
-                onnx.helper.make_tensor_value_info("y", onnx.TensorProto.FLOAT, y_shape),
+                onnx.helper.make_tensor_value_info(input_name1, onnx.TensorProto.FLOAT, x_shape),
+                onnx.helper.make_tensor_value_info(input_name2, onnx.TensorProto.FLOAT, y_shape),
             ],
             outputs=[
                 onnx.helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, ()),
@@ -123,6 +123,24 @@ def test_onnx2quant_multiple_inputs_model(tmp_path):
         onnx_model = p.run(input_model, output_folder)
 
     assert Path(onnx_model.model_path).exists()
+
+@pytest.mark.parametrize("input_names", [
+    ["hello,-.sdf$ßđˇ/", "y"],
+    ["x", "."],
+    ["", "abc"],
+    ["111", ".."],
+    ["x\t1", "y2"],
+    ["x 1", "y\n2"]
+])
+def test_onnx2quant_bad_input_model_name(tmp_path, input_names):
+    """Test that pass, where onnx model has invalid input names raises an error."""
+    model_path = create_onnx_model_with_multiple_inputs(tmp_path, input_name1=input_names[0], input_name2=input_names[1])
+    input_model = get_onnx_model_config(model_path).create_model()
+    config = {"calibration_dataset": "tmp_calibration_dataset", "allow_opset_10_and_lower": True}
+    p = create_pass_from_dict(ONNX2Quant, config, disable_search=True)
+    output_folder = str(tmp_path)
+    with pytest.raises(ValueError, match=r"cannot be used as a directory name for calibration dataset"):
+        p.run(input_model, output_folder)
 
 
 def test_onnx2quant_invalid_calibration_dataset_path(tmp_path):
