@@ -26,7 +26,7 @@ class NeutronConversionSDK2503(Pass):
                 type_=str,
                 required=True,
                 description="Target board, where converted model will be deployed."
-                "Currently supported targets are 'imxrt700', 'imx95'.",  # Mention only those targets we support.
+                "Currently supported target is 'imxrt700'.",  # Mention only those targets we support.
             ),
         }
 
