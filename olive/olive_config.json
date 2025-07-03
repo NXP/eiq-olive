@@ -551,6 +551,15 @@
             "supported_algorithms": [  ],
             "supported_quantization_encodings": [  ],
             "extra_dependencies": [ "onnx2tflite" ]
+        },
+        "NeutronConversionSDK2503": {
+            "module_path": "olive.passes.tensorflow.neutron_conversion_sdk_25_03.NeutronConversionSDK2503",
+            "supported_providers": [ "*" ],
+            "supported_accelerators": [ "*" ],
+            "supported_precisions": [ "*" ],
+            "supported_algorithms": [  ],
+            "supported_quantization_encodings": [  ],
+            "extra_dependencies": [ "neutron_converter_SDK_25_03" ]
         }
     },
     "extra_dependencies": {
@@ -567,6 +576,7 @@
         "gpu": [ "onnxruntime-gpu" ],
         "inc": [ "neural-compressor" ],
         "lora": [ "accelerate>=0.30.0", "peft", "scipy" ],
+        "neutron_converter_SDK_25_03": ["neutron_converter_SDK_25_03"],
         "nvmo": [ "nvidia-modelopt", "onnx-graphsurgeon", "datasets>=2.14.4", "cppimport==22.8.2" ],
         "onnx2tflite": [ "onnx2tflite" ],
         "openvino": [ "openvino>=2023.2.0", "nncf==2.7.0", "numpy<2.0" ],
