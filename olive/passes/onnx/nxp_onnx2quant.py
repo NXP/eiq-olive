@@ -139,6 +139,9 @@ class ONNX2Quant(Pass):
             quantization_config = QuantizationConfig(calibration_data_reader, config)
             onnx_model = model.load_model()
             quantized_model = QDQQuantizer().quantize_model(onnx_model, quantization_config=quantization_config)
+        except (AssertionError, AttributeError, ImportError, TypeError, ValueError):  # these are not logged by olive
+            logger.exception("")
+            raise
         finally:
             self._log_quantization_logs()
 
