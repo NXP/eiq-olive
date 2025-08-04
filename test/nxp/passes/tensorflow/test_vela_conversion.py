@@ -16,7 +16,6 @@ tflite_model_config = TFLiteModelHandler(model_path)
 def test_vela_conversion_success(tmp_path):
     """Test successful run of VelaConversion pass. The pass configuration should be empty."""
     output_folder = str(tmp_path)
-    output_folder = "/home/nxg05608/Documents"
 
     p = create_pass_from_dict(VelaConversion, {}, disable_search=True)
 
