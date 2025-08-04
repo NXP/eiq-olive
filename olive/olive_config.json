@@ -560,6 +560,15 @@
             "supported_algorithms": [  ],
             "supported_quantization_encodings": [  ],
             "extra_dependencies": [ "neutron_converter_SDK_25_03" ]
+        },
+        "VelaConversion": {
+            "module_path": "olive.passes.tensorflow.vela_conversion.VelaConversion",
+            "supported_providers": [ "*" ],
+            "supported_accelerators": [ "*" ],
+            "supported_precisions": [ "*" ],
+            "supported_algorithms": [  ],
+            "supported_quantization_encodings": [  ],
+            "extra_dependencies": [ "nxp-ethos-u-vela" ]
         }
     },
     "extra_dependencies": {
@@ -576,8 +585,9 @@
         "gpu": [ "onnxruntime-gpu" ],
         "inc": [ "neural-compressor" ],
         "lora": [ "accelerate>=0.30.0", "peft", "scipy" ],
-        "neutron_converter_SDK_25_03": ["neutron_converter_SDK_25_03"],
+        "neutron_converter_SDK_25_03": [ "neutron_converter_SDK_25_03" ],
         "nvmo": [ "nvidia-modelopt", "onnx-graphsurgeon", "datasets>=2.14.4", "cppimport==22.8.2" ],
+        "nxp-ethos-u-vela": [ "nxp-ethos-u-vela" ],
         "onnx2tflite": [ "onnx2tflite" ],
         "openvino": [ "openvino>=2023.2.0", "nncf==2.7.0", "numpy<2.0" ],
         "optimum": [ "optimum" ],
