@@ -33,12 +33,6 @@ class VelaConversion(Pass):
         if not isinstance(model, TFLiteModelHandler):
             raise NotImplementedError(f"Unsupported model handler type: {type(model)}")
 
-        # Keep Vela from printing stuff:
-        import sys
-
-        stdout_strm = sys.stdout
-        sys.stdout = None
-
         # Conversion:
         from ethosu.vela import model_reader, vela
         from ethosu.vela.architecture_features import ArchitectureFeatures
@@ -77,7 +71,7 @@ class VelaConversion(Pass):
                 optimization_strategy=OptimizationStrategy.Performance,
                 sram_target=arch.arena_cache_size,
                 verbose_schedule=False,
-                verbose_progress=False,
+                verbose_progress=True,
             )
 
             vela.process(
@@ -104,10 +98,8 @@ class VelaConversion(Pass):
             shutil.rmtree(vela_output_dir)
 
         except Exception as e:
-            err_msg = f"VelaConversion: {e}"
+            err_msg = f"VelaConversion failed: {e}"
             logger.exception(err_msg)
             raise
-        finally:
-            sys.stdout = stdout_strm
 
         return TFLiteModelHandler(output_model_path)
