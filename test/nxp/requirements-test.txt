@@ -1,3 +1,4 @@
-nxp-onnx2tflite
 neutron_converter_SDK_25_03
+nxp-ethos-u-vela
+nxp-onnx2tflite
 truststore
