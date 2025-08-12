@@ -83,6 +83,7 @@ setup(
         "olive.platform_sdk.qualcomm": ["create_python_env.sh", "create_python_env.ps1", "copy_libcdsprpc.ps1"],
         "olive.systems.docker": ["Dockerfile*"],
         "olive.systems.python_environment": ["common_requirements.txt"],
+        "olive.passes.tensorflow.misc": ["vela.ini"]
     },
     data_files=[],
     entry_points={
