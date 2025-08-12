@@ -1,6 +1,6 @@
 # NXP Olive AI
 [![Documentation](https://img.shields.io/website/https/microsoft.github.io/Olive?down_color=red&down_message=offline&up_message=online)](https://microsoft.github.io/Olive/)
-[![Latest version](https://img.shields.io/badge/nxp--olive--ai-0.4.0-brightgreen)](https://nl4-nxrm.sw.nxp.com/repository/EIQ-pypi/simple/nxp-olive-ai/)
+[![Latest version](https://img.shields.io/badge/nxp--olive--ai-0.4.1-brightgreen)](https://nl4-nxrm.sw.nxp.com/repository/EIQ-pypi/simple/nxp-olive-ai/)
 [![Rebased olive-ai version](https://img.shields.io/badge/Rebased_on_olive--ai-0.8.0-brightgreen)](https://github.com/microsoft/Olive/releases)
 
 ## Development
