@@ -65,30 +65,6 @@ class ONNX2Quant(Pass):
             ),
         }
 
-    def _log_quantization_logs(self):
-        def _get_logging_fn(importance):
-            severity_map = {
-                MessageImportance.DEBUG: logger.debug,
-                MessageImportance.INFO: logger.info,
-                MessageImportance.WARNING: logger.warning,
-            }
-            return severity_map.get(importance, logger.error)
-
-        def _parse_log(log_category, log: dict):
-            # Log dictionary data:
-            # data = {
-            #     "message": message,
-            #     "logging_context_hierarchy": list(self._current_logging_context),
-            #     "importance": importance.value,
-            #     "message_id": self._log_count,
-            # }
-            return f'[ONNX2Quant:{log_category}] {log["message"]}'
-
-        for log_category, logs in conversion_log.get_logs().items():
-            for log in logs:
-                fn = _get_logging_fn(MessageImportance(log["importance"]))
-                fn(_parse_log(log_category, log))
-
     def _create_calibration_dataset_mapping(self, dataset_path: Path) -> dict[str, str]:
         return {directory.name: str(directory) for directory in dataset_path.iterdir() if directory.is_dir()}
 
@@ -142,8 +118,6 @@ class ONNX2Quant(Pass):
         except (AssertionError, AttributeError, ImportError, TypeError, ValueError):  # these are not logged by olive
             logger.exception("")
             raise
-        finally:
-            self._log_quantization_logs()
 
         output_model_path = Path(output_model_path)
         output_model_path.mkdir(parents=True, exist_ok=True)
