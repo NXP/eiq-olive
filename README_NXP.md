@@ -10,9 +10,25 @@ to used stable revision of Olive framework.
 
 ### Lint
 
+We enforce linting through ruff:
+
 ```bash
 lintrunner --force-color --all-files --tee-json=lint.json -v --take RUFF
 python -m lintrunner_adapters to-sarif lint.json lintrunner.sarif
+
+```
+
+#### Results visualisation
+
+Install prerequisites:
+
+```bash
+pip install sarif
+```
+
+Generate CSV with results:
+
+```bash
 sarif blame -o lintrunner_annot.sarif lintrunner.sarif
 sarif csv -o summary.csv lintrunner_annot.sarif
 ```
