@@ -100,8 +100,8 @@ class KVDataloader:
 def kv_dataloader(dataset, batch_size, n_batches, **kwargs):
     return KVDataloader(pad_max=196, batch_size=batch_size, n_batches=n_batches)
 
-## Custom evaluation function for wikitext PPL 
-# 
+## Custom evaluation function for wikitext PPL
+#
 def eval_wt2_ppl(model, device, execution_provider, tasks=["wikitext"], batch_size=128):
 
     from neural_compressor.evaluation.lm_eval import evaluate, LMEvalParser
@@ -116,7 +116,7 @@ def eval_wt2_ppl(model, device, execution_provider, tasks=["wikitext"], batch_si
             model="hf",
             model_args=f"pretrained={model_dir},tokenizer=" + tokenizer + ",model_format=onnx",
             batch_size=batch_size,
-            tasks=','.join(tasks),
+            tasks=",".join(tasks),
             device="cpu",
             verbosity="DEBUG"
         )
@@ -127,7 +127,7 @@ def eval_wt2_ppl(model, device, execution_provider, tasks=["wikitext"], batch_si
             model="hf",
             model_args=f"pretrained={model.model_path},tokenizer={tokenizer},dtype=float32",
             batch_size=batch_size,
-            tasks=','.join(tasks),
+            tasks=",".join(tasks),
             device="cpu",
             verbosity="DEBUG"
         )
