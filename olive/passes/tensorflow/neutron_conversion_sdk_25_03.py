@@ -44,7 +44,7 @@ class NeutronConversionSDK2503(Pass):
         if not isinstance(model, TFLiteModelHandler):
             raise NotImplementedError(f"Unsupported model handler type: {type(model)}")
 
-        import neutron_converter_SDK_25_03.neutron_converter as neutron_converter
+        import neutron_converter_SDK_25_03.neutron_converter as neutron_converter  # noqa: PLC0415
 
         config = dict(config)
         neutron_target = config["target"]

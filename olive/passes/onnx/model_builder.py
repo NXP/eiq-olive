@@ -67,7 +67,8 @@ class ModelBuilder(Pass):
                 type_=bool,
                 default_value=True,
                 required=False,
-                description="Whether to override or not the default search configuration with the one from user. Default true.",
+                description="Whether to override or not the default search configuration with the one from user. "
+                            "Default true.",
             ),
             "search": PassConfigParam(
                 type_=Dict[str, Any], required=False, description="Search options to use for generate loop."

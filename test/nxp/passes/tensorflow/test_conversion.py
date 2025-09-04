@@ -63,7 +63,7 @@ def test_tflite_conversion_pass__invalid_shape_definition(tmp_path):
     p = create_pass_from_dict(TFLiteConversion, config, disable_search=True)
     output_folder = str(tmp_path)
 
-    with pytest.raises(Exception) as e:
+    with pytest.raises(Exception) as e:  # noqa: PT011
         p.run(input_model, output_folder)
 
     assert "in invalid format. Must be <dim_name>:(<dim_0>,<dim_1>,...)" in str(e)
@@ -77,7 +77,7 @@ def test_tflite_conversion_pass__symbolic_dim_definition(tmp_path):
     p = create_pass_from_dict(TFLiteConversion, config, disable_search=True)
     output_folder = str(tmp_path)
 
-    with pytest.raises(Exception) as e:
+    with pytest.raises(Exception) as e:  # noqa: PT011
         p.run(input_model, output_folder)
 
     assert "in invalid format. Must be '<dim_name>:<dimension_size>'" in str(e)

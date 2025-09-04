@@ -41,7 +41,7 @@ class WhisperDataset:
                     audio_blob = np.asarray(list(_f.read()), dtype=np.uint8)
                 audio_input_name = "audio_stream"
             else:
-                import librosa
+                import librosa  # noqa: PLC0415
 
                 audio_blob, _ = librosa.load(audio_file)
                 audio_input_name = "audio_pcm"

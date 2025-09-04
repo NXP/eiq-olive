@@ -6,6 +6,7 @@
 #
 
 import logging
+import shutil
 from pathlib import Path
 from typing import Dict, Type
 
@@ -34,22 +35,24 @@ class VelaConversion(Pass):
             raise NotImplementedError(f"Unsupported model handler type: {type(model)}")
 
         # Conversion:
-        from ethosu.vela import model_reader, vela
-        from ethosu.vela.architecture_features import ArchitectureFeatures
-        from ethosu.vela.compiler_driver import CompilerOptions
-        from ethosu.vela.hillclimb_allocation import HillClimbAllocator
-        from ethosu.vela.nn_graph import TensorAllocator
-        from ethosu.vela.scheduler import OptimizationStrategy, SchedulerOptions
-        from ethosu.vela.tensor import Tensor
+        from ethosu.vela import model_reader, vela  # noqa: PLC0415
+        from ethosu.vela.architecture_features import ArchitectureFeatures  # noqa: PLC0415
+        from ethosu.vela.compiler_driver import CompilerOptions  # noqa: PLC0415
+        from ethosu.vela.hillclimb_allocation import HillClimbAllocator  # noqa: PLC0415
+        from ethosu.vela.nn_graph import TensorAllocator  # noqa: PLC0415
+        from ethosu.vela.scheduler import OptimizationStrategy, SchedulerOptions  # noqa: PLC0415
+        from ethosu.vela.tensor import Tensor  # noqa: PLC0415
 
         vela_ini_path = Path(__file__).parent / "misc/vela.ini"
 
         try:
             arch = ArchitectureFeatures(
                 vela_config_files=vela_ini_path,
-                system_config="Ethos_U65_High_End",  # Auzone configuration see https://bitbucket.sw.nxp.com/projects/AITEC/repos/auzone-runtime-modelrunner/browse/profiling/vela_offline/vela_offline_profiling.cc
+                system_config="Ethos_U65_High_End",
+                # Auzone configuration see https://bitbucket.sw.nxp.com/projects/AITEC/repos/auzone-runtime-modelrunner/browse/profiling/vela_offline/vela_offline_profiling.cc
                 memory_mode="Sram_Only",
-                accelerator_config="ethos-u65-256",  # Auzone configuration https://bitbucket.sw.nxp.com/projects/AITEC/repos/auzone-runtime-modelrunner/browse/profiling/vela_offline/vela_offline_profiling.cc
+                accelerator_config="ethos-u65-256",
+                # Auzone configuration https://bitbucket.sw.nxp.com/projects/AITEC/repos/auzone-runtime-modelrunner/browse/profiling/vela_offline/vela_offline_profiling.cc
                 max_blockdep=ArchitectureFeatures.MAX_BLOCKDEP,
                 verbose_config=False,
                 arena_cache_size=384 * 1024,
@@ -85,8 +88,6 @@ class VelaConversion(Pass):
             )
 
             # Copy optimized model from the Vela output dir to the specified dir:
-            import shutil
-
             model_name = Path(model.model_path).stem + "_vela.tflite"
 
             output_model_path = Path(output_model_path)

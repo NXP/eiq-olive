@@ -6,7 +6,7 @@
 #
 import logging
 from pathlib import Path
-from typing import Any, Dict, Type
+from typing import Dict, Type, ClassVar
 
 from olive.hardware import AcceleratorSpec
 from olive.model import ONNXModelHandler
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class TFLiteConversion(Pass):
     """Convert ONNX to TFLite model."""
 
-    _default_config_params = {
+    _default_config_params: ClassVar[dict[str, PassConfigParam]] = {
         "non_negative_indices": PassConfigParam(
             type_=bool,
             default_value=False,
@@ -138,8 +138,8 @@ class TFLiteConversion(Pass):
         if not isinstance(model, ONNXModelHandler):
             raise NotImplementedError(f"Unsupported model handler type: {type(model)}")
 
-        from onnx2tflite.src.conversion_config import ConversionConfig
-        import onnx2tflite.src.converter.convert as convert
+        from onnx2tflite.src.conversion_config import ConversionConfig  # noqa: PLC0415
+        import onnx2tflite.src.converter.convert as convert  # noqa: PLC0415
 
         config = dict(config)
 

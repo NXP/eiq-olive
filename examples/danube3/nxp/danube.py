@@ -60,10 +60,10 @@ def optimize(model_name: str, olive_config: dict):
 
 
 def inference(model_id: str, optimized_model_dir: Path, execution_provider: str, prompt: List[str], max_length: int):
-    import onnxruntime as ort
-    from optimum.onnxruntime import ORTModelForCausalLM
-    from optimum.utils.save_utils import maybe_save_preprocessors
-    from transformers import AutoConfig, AutoTokenizer
+    import onnxruntime as ort  # noqa: PLC0415
+    from optimum.onnxruntime import ORTModelForCausalLM  # noqa: PLC0415
+    from optimum.utils.save_utils import maybe_save_preprocessors  # noqa: PLC0415
+    from transformers import AutoConfig, AutoTokenizer  # noqa: PLC0415
 
     ort.set_default_logger_severity(3)
     # save any configs that might be needed for inference

@@ -137,7 +137,8 @@ class RotateBase(Pass):
                     # not really an issue since bias is not present in most models
                     R2 = torch.nn.Parameter(
                         self.get_orthogonal_matrix(model_wrapper.head_dim, rotate_mode, model_wrapper.model.device,
-                                                   rotation_file_path=rotation_file_path, matrix_name = f"model.layers.{j}.self_attn.R2")
+                                                   rotation_file_path=rotation_file_path,
+                                                   matrix_name=f"model.layers.{j}.self_attn.R2")
                     )
                     rotation_params.append(R2)
                 set_attr(
@@ -238,7 +239,7 @@ class RotateBase(Pass):
 
             return random_hadamard_matrix(size, device)
         elif mode == "load_matrix":
-            print(f"Loading matrix {matrix_name} from {rotation_file_path}")
+            logger.debug("Loading matrix %s from %s", matrix_name, rotation_file_path)
             R = torch.load(rotation_file_path)[matrix_name]
             s = R.shape
             assert len(s) == 2
@@ -262,7 +263,8 @@ class QuaRot(RotateBase):
     def _run_for_config(
         self, model: HfModelHandler, config: Type[BasePassConfig], output_model_path: str
     ) -> HfModelHandler:
-        model_wrapper, _, save_replacements = self.rotate_model(model, config.rotate_mode, config.seed, rotation_file_path=config.rotation_file_path)
+        model_wrapper, _, save_replacements = self.rotate_model(model, config.rotate_mode, config.seed,
+                                                                rotation_file_path=config.rotation_file_path)
 
         # save the model
         model_wrapper.save_model(output_model_path, replacements=save_replacements)

@@ -11,7 +11,7 @@ import pytest
 @pytest.fixture(scope="session", autouse=True)
 def setup_onnx_model(request, tmp_path_factory):
     cache_path = tmp_path_factory.mktemp("transformers_cache")
-    import transformers
+    import transformers  # noqa: PLC0415
 
     # we cannot use os.environ["TRANSFORMERS_CACHE"] = str(cache_path)
     # because the TRANSFORMERS_CACHE is loaded when importing transformers

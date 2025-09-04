@@ -2,40 +2,39 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-import random
 from pathlib import Path
 
-import onnx
-from torch.utils.data import DataLoader
-from torch.nn.functional import pad
-
 import numpy as np
-import onnxruntime as ort
 import torch
 from datasets import load_dataset
+from torch.nn.functional import pad
+from torch.utils.data import DataLoader
 from transformers import AutoConfig, AutoTokenizer
+
 from olive.constants import Framework
 from olive.data.registry import Registry
-from olive.model import OliveModelHandler
-from optimum.onnxruntime import ORTModelForCausalLM
-
 
 model_id = "Qwen/Qwen3-0.6B"
 config = AutoConfig.from_pretrained(model_id)
+
 
 def tokenize_function(examples):
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     return tokenizer(examples["text"])
 
-# We hardcode the input names related to the KV cache for the KV dataloader
-input_names = sum([[f"past_key_values.{j}.key", f"past_key_values.{j}.value"] for j in range(config.num_hidden_layers)],[])
 
-## Dataloader for INCQuantization, approach = static. In particular, we need to create and pass dummy past_key_values for the onnx decoder.
+# We hardcode the input names related to the KV cache for the KV dataloader
+input_names = sum([[f"past_key_values.{j}.key", f"past_key_values.{j}.value"] for j in range(config.num_hidden_layers)],
+                  [])
+
+
+# Dataloader for INCQuantization, approach = static. In particular, we need to create and pass dummy past_key_values
+# for the onnx decoder.
 class KVDataloader:
-    def __init__(self, dataset = "NeelNanda/pile-10k", pad_max=196,
+    def __init__(self, dataset="NeelNanda/pile-10k", pad_max=196,
                  batch_size=1, n_batches=1, sub_folder="train"):
         self.pad_max = pad_max
-        self.batch_size=batch_size
+        self.batch_size = batch_size
         self.n_batches = n_batches
         dataset = load_dataset(dataset, split=sub_folder)
         dataset = dataset.map(tokenize_function, batched=True)
@@ -71,9 +70,10 @@ class KVDataloader:
 
             for j, ((input_ids, attention_mask), last_ind) in enumerate(self.dataloader):
 
-                if j>=self.n_batches: return
+                if j >= self.n_batches:
+                    return
 
-                print(f"Passing batch #{j+1}/{self.n_batches}")
+                print(f"Passing batch #{j + 1}/{self.n_batches}")
                 ort_input = {}
 
                 ort_input["input_ids"] = input_ids[:, :-1].detach().cpu().numpy().astype("int64")
@@ -98,14 +98,15 @@ class KVDataloader:
         except StopIteration:
             return
 
+
 @Registry.register_dataloader()
 def kv_dataloader(dataset, batch_size, n_batches, **kwargs):
     return KVDataloader(pad_max=196, batch_size=batch_size, n_batches=n_batches)
 
-## Custom evaluation function for wikitext PPL
-def eval_wt2_ppl(model, device, execution_provider, tasks=["wikitext"], batch_size=128):
 
-    from neural_compressor.evaluation.lm_eval import evaluate, LMEvalParser
+## Custom evaluation function for wikitext PPL
+def eval_wt2_ppl(model, device, execution_provider, tasks=("wikitext",), batch_size=128):
+    from neural_compressor.evaluation.lm_eval import evaluate, LMEvalParser  # noqa: PLC0415
 
     model_dir = Path(model.model_path).resolve().parent
     tokenizer = "Qwen/Qwen3-0.6B"
@@ -149,4 +150,4 @@ def eval_wt2_ppl(model, device, execution_provider, tasks=["wikitext"], batch_si
         eval_acc /= len(tasks)
 
     print(eval_acc)
-    return {"custom":eval_acc}
+    return {"custom": eval_acc}
