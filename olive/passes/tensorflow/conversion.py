@@ -105,30 +105,6 @@ class TFLiteConversion(Pass):
     def _default_config(cls, accelerator_spec: AcceleratorSpec) -> Dict[str, PassConfigParam]:
         return cls._default_config_params
 
-    def _log_conversion_logs(self):
-        def _get_logging_fn(importance):
-            severity_map = {
-                MessageImportance.DEBUG: logger.debug,
-                MessageImportance.INFO: logger.info,
-                MessageImportance.WARNING: logger.warning
-            }
-            return severity_map.get(importance, logger.error)
-
-        def _parse_log(log_category, log: dict):
-            # Log dictionary data:
-            # data = {
-            #     "message": message,
-            #     "logging_context_hierarchy": list(self._current_logging_context),
-            #     "importance": importance.value,
-            #     "message_id": self._log_count,
-            # }
-            return f'[TFLiteConversion:{log_category}] {log["message"]}'
-
-        for log_category, logs in conversion_log.get_logs().items():
-            for log in logs:
-                fn = _get_logging_fn(MessageImportance(log["importance"]))
-                fn(_parse_log(log_category, log))
-
     def _run_for_config(
         self,
         model: ONNXModelHandler,
@@ -143,18 +119,15 @@ class TFLiteConversion(Pass):
 
         config = dict(config)
 
-        try:
-            if "symbolic_dimension_into_static" in config:
-                config["symbolic_dimensions_mapping"] = convert.parse_symbolic_dimensions_mapping(
-                    config["symbolic_dimension_into_static"]
-                )
+        if "symbolic_dimension_into_static" in config:
+            config["symbolic_dimensions_mapping"] = convert.parse_symbolic_dimensions_mapping(
+                config["symbolic_dimension_into_static"]
+            )
 
-            if "set_input_shape" in config:
-                config["input_shapes_mapping"] = convert.parse_input_shape_mapping(config["set_input_shape"])
+        if "set_input_shape" in config:
+            config["input_shapes_mapping"] = convert.parse_input_shape_mapping(config["set_input_shape"])
 
-            binary_tflite_model = convert.convert_model(model.model_path, ConversionConfig(config))
-        finally:
-            self._log_conversion_logs()
+        binary_tflite_model = convert.convert_model(model.model_path, ConversionConfig(config))
 
         output_model_dir = Path(output_model_dir)
         output_model_dir.mkdir(parents=True, exist_ok=True)
