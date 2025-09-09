@@ -1,8 +1,7 @@
 #
 # Copyright 2024 NXP
 #
-# License: LA_OPT_NXP_Software_License
-# See the LICENSE_LA_OPT_NXP_Software_License for more details.
+# Licensed under the MIT License.
 #
 from pathlib import Path
 from test.unit_test.utils import get_onnx_model_config

@@ -1,8 +1,7 @@
 #
 # Copyright 2025 NXP
 #
-# License: LA_OPT_NXP_Software_License
-# See the LICENSE_LA_OPT_NXP_Software_License for more details.
+# Licensed under the MIT License.
 #
 
 import logging
@@ -14,7 +13,6 @@ import onnx2tflite.src.converter.convert as convert
 from onnx2quant.__main__ import NpyCalibrationDataReader
 from onnx2quant.qdq_quantization import QDQQuantizer
 from onnx2quant.quantization_config import QuantizationConfig
-from onnx2tflite.src.logger import MessageImportance, conversion_log
 
 from olive.common.config_utils import ParamCategory
 from olive.hardware import AcceleratorSpec
