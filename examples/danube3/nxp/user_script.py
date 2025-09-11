@@ -3,15 +3,15 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 import random
+from pathlib import Path
 from typing import List, Tuple
 
 import torch
 from datasets import load_dataset
 from transformers import AutoConfig, LlamaTokenizer
 
-from olive.data.registry import Registry
 from olive.constants import Framework
-from pathlib import Path
+from olive.data.registry import Registry
 
 # pylint: disable=redefined-outer-name
 
@@ -64,7 +64,7 @@ class PileDataloader:
             inputs = {
                 "input_ids": inp.detach().cpu().numpy().astype("int64"),
                 "attention_mask": attention_mask.detach().cpu().numpy().astype("int64"),
-               # "position_ids": position_ids.detach().cpu().numpy().astype("int64"),
+                # "position_ids": position_ids.detach().cpu().numpy().astype("int64"),
             }
 
             past_kv = get_past_kv_inputs(config, self.batch_size, self.past_seq_len, use_fp16=False, world_size=1)
@@ -111,9 +111,9 @@ def flatten_past_kv_inputs(past_key_values: List[Tuple[torch.Tensor, torch.Tenso
         past_kv[f"past_key_values.{i}.value"] = past_v
     return past_kv
 
-def eval_wt2_ppl(model, device, execution_provider, tasks=["wikitext"], batch_size=128):
 
-    from neural_compressor.evaluation.lm_eval import evaluate, LMEvalParser
+def eval_wt2_ppl(model, device, execution_provider, tasks=("wikitext",), batch_size=128):
+    from neural_compressor.evaluation.lm_eval import evaluate, LMEvalParser  # noqa: PLC0415
 
     model_dir = Path(model.model_path).resolve().parent
     tokenizer = "h2oai/h2o-danube3-500m-chat"
@@ -125,7 +125,7 @@ def eval_wt2_ppl(model, device, execution_provider, tasks=["wikitext"], batch_si
             model="hf",
             model_args=f"pretrained={model_dir},tokenizer=" + tokenizer + ",model_format=onnx",
             batch_size=batch_size,
-            tasks=','.join(tasks),
+            tasks=",".join(tasks),
             device="cpu",
             verbosity="DEBUG"
         )
@@ -136,7 +136,7 @@ def eval_wt2_ppl(model, device, execution_provider, tasks=["wikitext"], batch_si
             model="hf",
             model_args=f"pretrained={model.model_path},tokenizer={tokenizer},dtype=float32",
             batch_size=batch_size,
-            tasks=','.join(tasks),
+            tasks=",".join(tasks),
             device="cpu",
             verbosity="DEBUG"
         )
@@ -157,4 +157,4 @@ def eval_wt2_ppl(model, device, execution_provider, tasks=["wikitext"], batch_si
         eval_acc /= len(tasks)
 
     print(eval_acc)
-    return {"custom":eval_acc}
+    return {"custom": eval_acc}
