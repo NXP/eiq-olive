@@ -1,3 +1,32 @@
+# eiq-olive
+[![Documentation](https://img.shields.io/website/https/microsoft.github.io/Olive?down_color=red&down_message=offline&up_message=online)](https://microsoft.github.io/Olive/)
+[![Latest version](https://img.shields.io/badge/eiq--olive-0.4.1-brightgreen)](https://eiq.nxp.com/repository/EIQ-pypi/simple/eiq-olive/)
+[![Rebased olive-ai version](https://img.shields.io/badge/Rebased_on_olive--ai-0.8.0-brightgreen)](https://github.com/microsoft/Olive/releases)
+
+**eiq-olive** is an extension of Microsoft’s Olive optimization framework, tailored to support additional workflows and
+deployment targets. This fork introduces new optimization passes, enhanced support for TensorFlow Lite (TFLite), and
+other improvements aimed at streamlining model conversion and deployment to NXP's edge devices.
+
+## Added passes
+
+| Pass name                      | Implementation                                                  | Dependencies                                                                               | Input type | Output type |
+|--------------------------------|-----------------------------------------------------------------|--------------------------------------------------------------------------------------------|------------|-------------|
+| NeutronConversionSDK2503       | [Code](olive/passes/tensorflow/neutron_conversion_sdk_25_03.py) | [neutron-converter-sdk-25-03](https://eiq.nxp.com/repository/neutron-converter-sdk-25-03/) | TFLite     | TFLite      |
+| ONNX2Quant                     | [Code](olive/passes/onnx/nxp_onnx2quant.py)                     | [eiq-onnx2tflite](https://eiq.nxp.com/repository/eiq-onnx2tflite/)                         | ONNX       | ONNX        |
+| TFLiteConversion (ONNX2TFLite) | [Code](olive/passes/tensorflow/conversion.py)                   | [eiq-onnx2tflite](https://eiq.nxp.com/repository/eiq-onnx2tflite/)                         | ONNX       | TFLite      |
+| VelaConversion                 | [Code](olive/passes/tensorflow/vela_conversion.py)              | [ethos-u-vela](https://eiq.nxp.com/repository/nxp-ethos-u-vela/)                           | TFLite     | TFLite      |
+
+## Development
+
+### Lint
+
+We use ruff linter:
+```bash
+ruff check
+```
+
+---
+
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/source/images/olive-white-text.png">

@@ -1,8 +1,7 @@
 #
 # Copyright 2024 NXP
 #
-# License: LA_OPT_NXP_Software_License
-# See the LICENSE_LA_OPT_NXP_Software_License for more details.
+# Licensed under the MIT License.
 #
 import logging
 from pathlib import Path
@@ -13,7 +12,6 @@ from olive.model import ONNXModelHandler
 from olive.model.handler.tensorflow import TFLiteModelHandler
 from olive.passes.olive_pass import Pass
 from olive.passes.pass_config import BasePassConfig, PassConfigParam
-from onnx2tflite.src.logger import conversion_log, MessageImportance
 
 logger = logging.getLogger(__name__)
 
