@@ -12,7 +12,6 @@ from olive.model import ONNXModelHandler
 from olive.model.handler.tensorflow import TFLiteModelHandler
 from olive.passes.olive_pass import Pass
 from olive.passes.pass_config import BasePassConfig, PassConfigParam
-from onnx2tflite.src.logger import conversion_log, MessageImportance
 
 logger = logging.getLogger(__name__)
 
