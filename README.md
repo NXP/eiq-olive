@@ -16,15 +16,6 @@ other improvements aimed at streamlining model conversion and deployment to NXP'
 | TFLiteConversion (ONNX2TFLite) | [Code](olive/passes/tensorflow/conversion.py)                   | [eiq-onnx2tflite](https://eiq.nxp.com/repository/eiq-onnx2tflite/)                         | ONNX       | TFLite      |
 | VelaConversion                 | [Code](olive/passes/tensorflow/vela_conversion.py)              | [ethos-u-vela](https://eiq.nxp.com/repository/nxp-ethos-u-vela/)                           | TFLite     | TFLite      |
 
-## Development
-
-### Lint
-
-We use ruff linter:
-```bash
-ruff check
-```
-
 ---
 
 <div align="center">

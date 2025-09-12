@@ -62,7 +62,7 @@ long_description = (
 description = long_description.split(".", maxsplit=1)[0] + "."
 
 setup(
-    name="nxp-olive-ai",
+    name="eiq-olive",
     version=VERSION,
     description=description,
     long_description=long_description,
