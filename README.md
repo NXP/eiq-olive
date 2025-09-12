@@ -1,6 +1,6 @@
 # eiq-olive
 [![Documentation](https://img.shields.io/website/https/microsoft.github.io/Olive?down_color=red&down_message=offline&up_message=online)](https://microsoft.github.io/Olive/)
-[![Latest version](https://img.shields.io/badge/eiq--olive-0.4.1-brightgreen)](https://eiq.nxp.com/repository/EIQ-pypi/simple/eiq-olive/)
+[![Latest version](https://img.shields.io/badge/eiq--olive-0.5.0-brightgreen)](https://eiq.nxp.com/repository/eiq-olive/)
 [![Rebased olive-ai version](https://img.shields.io/badge/Rebased_on_olive--ai-0.8.0-brightgreen)](https://github.com/microsoft/Olive/releases)
 
 **eiq-olive** is an extension of Microsoft’s Olive optimization framework, tailored to support additional workflows and
