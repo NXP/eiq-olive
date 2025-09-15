@@ -102,4 +102,4 @@ class VelaConversion(Pass):
             logger.exception(err_msg)
             raise
 
-        return TFLiteModelHandler(output_model_path)
+        return TFLiteModelHandler(output_model_path / model_name)

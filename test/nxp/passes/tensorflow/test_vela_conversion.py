@@ -3,7 +3,8 @@
 #
 # Licensed under the MIT License.
 #
-
+import os.path
+import pathlib
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,8 @@ from olive.model.handler.tensorflow import TFLiteModelHandler
 from olive.passes.olive_pass import create_pass_from_dict
 from olive.passes.tensorflow.vela_conversion import VelaConversion
 
-model_path = "test/nxp/resources/conv2d_model.tflite"
+_NXP_TEST_DIR = pathlib.Path(__file__).parent.parent.parent
+model_path = os.path.join(_NXP_TEST_DIR, "resources", "conv2d_model.tflite")
 tflite_model_config = TFLiteModelHandler(model_path)
 
 
@@ -24,6 +26,7 @@ def test_vela_conversion_success(tmp_path):
 
     vela_model = p.run(tflite_model_config, output_folder)
     assert Path(vela_model.model_path).exists()
+    assert Path(vela_model.model_path).is_file()
 
 
 def test_vela_conversion_file_not_exists(tmp_path):
