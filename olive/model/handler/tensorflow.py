@@ -8,6 +8,7 @@ from olive.constants import Framework, ModelFileFormat
 from olive.hardware.accelerator import Device
 from olive.model.config.registry import model_handler_registry
 from olive.model.handler.base import OliveModelHandler
+from olive.model.utils.tensorflow_utils import get_tflite_file_path
 from olive.resource_path import OLIVE_RESOURCE_ANNOTATIONS
 
 
@@ -62,7 +63,12 @@ class TFLiteModelHandler(OliveModelHandler):
             model_attributes=model_attributes,
         )
 
-    def load_model(self, rank: int = None):
+    @property
+    def model_path(self) -> str:
+        model_path = super().model_path
+        return get_tflite_file_path(model_path) if model_path else None
+
+    def load_model(self, rank: int = None, cache_model: bool = True):
         raise NotImplementedError
 
     def prepare_session(
