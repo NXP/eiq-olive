@@ -16,6 +16,143 @@ other improvements aimed at streamlining model conversion and deployment to NXP'
 | TFLiteConversion (ONNX2TFLite) | [Code](olive/passes/tensorflow/conversion.py)                   | [eiq-onnx2tflite](https://eiq.nxp.com/repository/eiq-onnx2tflite/)                         | ONNX       | TFLite      |
 | VelaConversion                 | [Code](olive/passes/tensorflow/vela_conversion.py)              | [ethos-u-vela](https://eiq.nxp.com/repository/nxp-ethos-u-vela/)                           | TFLite     | TFLite      |
 
+### Example configs
+- `NeutronConversionSDK2503` config:
+    - ```
+        {
+            "input_model": {
+                "type": "TFLiteModel",
+                "model_path": "model.tflite"
+            },
+            "passes": {
+                "neutron_conversion": {
+                    "type": "NeutronConversionSDK2503",
+                    "config": {
+                        "target": "imxrt700"
+                    }
+                }
+            },
+            "cache_dir": "cache",
+            "output_dir": "outputs"
+        }
+        ```
+    Arguments:<details><summary>Click here!</summary>
+    - required:
+        - `target` - Target board, where converted model will be deployed
+    - optional: none 🚫
+    </details>
+    <br>
+
+    
+- `ONNX2Quant` config:
+    - ```
+        {
+            "input_model": {
+                "type": "ONNXModel",
+                "model_path": "yolov8n.onnx"
+            },
+            "passes": {
+                "onnx_quantization": {
+                    "type": "ONNX2Quant",
+                    "config": {
+                        "per_channel": true,
+                        "allow_opset_10_and_lower": true,
+                        "calibration_dataset": "yolo_calib",
+                        "symbolic_dimension_into_static": [],
+                        "set_input_shape": []
+                    }
+                }
+            },
+            "cache_dir": "cache",
+            "output_dir": "outputs"
+        }
+        ```
+    Arguments:<details><summary>Click here!</summary>
+    - required:
+        - `calibration_dataset` - Path to a calibration dataset directory. The directory should contain subdirectories for each model input. Subdirectories should have the same name as model inputs. Each subdirectory then contains *.npy files.
+    - optional:
+        - `per_channel` - Quantize some weight tensors per-channel instead of per-tensor. This should result in a higher accuracy.
+        - `allow_opset_10_and_lower` - Allow quantization of models with opset version 10 and lower. Quantization of such models can produce invalid models because opset is forcefully updated to version 11. This applies especially to models with operators: Clip, Dropout, BatchNormalization and Split.
+        - `symbolic_dimension_into_static` - Change symbolic dimension in model to static (fixed) value. Provided mapping must follow this format '<dim_name>:<dim_size>', for example 'batch:1'.
+        - `set_input_shape` - Override model input shape. Provided mapping must follow format '<dim_name>:(<dim_0>,<dim_1>,...)', for example 'input_1:(1,3,224,224)'.
+    </details>
+    <br>
+
+
+- `TFLiteConversion` config:
+    - ```
+        {
+            "input_model": {
+                "type": "ONNXModel",
+                "model_path": "yolov8n.onnx"
+            },
+            "passes": {
+                "tflite_conversion": {
+                    "type": "TFLiteConversion",
+                    "config": {
+                        "non_negative_indices": false,
+                        "cast_int64_to_int32": false,
+                        "accept_resize_rounding_error": false,
+                        "ignore_opset_version": false,
+                        "allow_inputs_stripping": true,
+                        "keep_io_format": true,
+                        "skip_shape_inference": false,
+                        "qdq_aware_conversion": true,
+                        "symbolic_dimension_into_static": [],
+                        "set_input_shape": [],
+                        "dont_skip_nodes_with_known_outputs": false,
+                        "allow_select_ops": true
+                    }
+                }
+            },
+            "cache_dir": "cache",
+            "output_dir": "outputs"
+        }
+        ```
+    
+    Arguments:<details><summary>Click here!</summary>
+    - required: none 🚫
+    - optional:
+        - `non_negative_indices` - Guarantee that an `indices` input tensor will always contain non-negative values.
+        - `cast_int64_to_int32` - Cast some nodes with type INT64 to INT32 when TFLite doesn't support INT64. Such nodes are often used in ONNX to calculate shapes/indices, so full range of INT64 isn't necessary.
+        - `accept_resize_rounding_error` - Accept the error caused by a different rounding approach of the ONNX `Resize` and TFLite `ResizeNearestNeighbor` operators, and convert the model anyway.
+        - `ignore_opset_version` - Ignore the checks for supported opset versions of the ONNX model and try to convert it anyway. This can result in an invalid output TFLite model.
+        - `allow_inputs_stripping` - Model inputs will be removed if they are not necessary for inference and their values are derived during the conversion.
+        - `keep_io_format` - Keep the format of input and output tensors of the converted model the same, as in the original ONNX model (NCHW).
+        - `skip_shape_inference` - Shape inference will be skipped before model conversion. This option can be used only if model's shapes are fully defined. Defined shapes are necessary for successful conversion.
+        - `qdq_aware_conversion` - Quantized QDQ model with QDQ pairs (Q-Ops created by QDQ quantizer) will be converted into optimized variant with QDQ pairs represented as tensors' quantization parameters.
+        - `symbolic_dimension_into_static` - Change symbolic dimension in model to static (fixed) value. Provided mapping must follow this format '<dim_name>:<dim_size>', for example 'batch:1'. Multiple mappings can be specified.
+        - `set_input_shape` - Override model input shape. Provided mapping must follow format '<dim_name>:(<dim_0>,<dim_1>,...)', for example 'input_1:(1,3,224,224)'. Shapes of multiple inputs can be specified.
+        - `dont_skip_nodes_with_known_outputs` - Sometimes it is possible to statically infer the output data of some nodes. These nodes will then not be a part of the output model. This flag will force the converter to keep them in anyway.
+        - `allow_select_ops` - Allow the converter to use the `SELECT_TF_OPS` operators, which require Flex delegate at runtime.
+    </details>
+    <br>
+
+
+- `VelaConversion` config:
+    - ```
+        {
+            "input_model": {
+                "type": "TFLiteModel",
+                "model_path": "model.tflite"
+            },
+            "passes": {
+                "tflite_conversion": {
+                    "type": "VelaConversion",
+                    "config": {
+                    }
+                }
+            },
+            "cache_dir": "cache",
+            "output_dir": "outputs"
+        }
+        ```
+    Arguments:<details><summary>Click here!</summary>
+    - required: none 🚫
+    - optional: none 🚫
+    </details>
+    <br>
+
 ---
 
 <div align="center">
