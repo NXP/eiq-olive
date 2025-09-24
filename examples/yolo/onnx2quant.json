@@ -1,0 +1,20 @@
+{
+      "input_model": {
+          "type": "ONNXModel",
+          "model_path": "yolov8n.onnx"
+      },
+      "passes": {
+          "onnx_quantization": {
+              "type": "ONNX2Quant",
+              "config": {
+                  "per_channel": true,
+                  "allow_opset_10_and_lower": true,
+                  "calibration_dataset": "yolo_calib",
+                  "symbolic_dimension_into_static": [],
+                  "set_input_shape": []
+              }
+          }
+      },
+      "cache_dir": "cache",
+      "output_dir": "outputs-quant"
+  }

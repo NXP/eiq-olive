@@ -1,0 +1,15 @@
+{
+      "input_model": {
+          "type": "TFLiteModel",
+          "model_path": "outputs-tflite-convert/model.tflite"
+      },
+      "passes": {
+          "tflite_conversion": {
+              "type": "VelaConversion",
+              "config": {
+              }
+          }
+      },
+      "cache_dir": "cache",
+      "output_dir": "outputs-vela-convert"
+  }
