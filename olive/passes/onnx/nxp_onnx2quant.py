@@ -37,7 +37,7 @@ class ONNX2Quant(Pass):
             "allow_opset_10_and_lower": PassConfigParam(
                 type_=bool,
                 default_value=False,
-                description="Allow quantization of models with opset version 10 and lower. Quantization of such models"
+                description="Allow quantization of models with opset version 10 and lower. Quantization of such models "
                 "can produce invalid models because opset is forcefully updated to version 11. This applies "
                 "especially to models with operators: Clip, Dropout, BatchNormalization and Split.",
             ),
