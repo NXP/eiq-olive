@@ -81,7 +81,7 @@ class TFLiteConversion(Pass):
             type_=list[str],
             default_value=[],
             description="Override model input shape. Provided mapping must follow format '<dim_name>:(<dim_0>,"
-                        "<dim_1>,...)', for example 'input_1:(1,3,224,224)'. Shapes of multiple inputs can be"
+                        "<dim_1>,...)', for example 'input_1:(1,3,224,224)'. Shapes of multiple inputs can be "
                         "specified."
         ),
         "dont_skip_nodes_with_known_outputs": PassConfigParam(

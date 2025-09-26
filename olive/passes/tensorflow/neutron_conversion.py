@@ -1,0 +1,235 @@
+#
+# Copyright 2025 NXP
+#
+# Licensed under the MIT License.
+#
+
+import logging
+import os
+import select
+import threading
+from enum import StrEnum
+from pathlib import Path
+from typing import Dict, Type
+
+import billiard
+from billiard.context import Process
+from billiard.queues import Queue
+
+from olive.exception import OliveError
+from olive.hardware import AcceleratorSpec
+from olive.model.handler.tensorflow import TFLiteModelHandler
+from olive.passes.olive_pass import Pass
+from olive.passes.pass_config import BasePassConfig, PassConfigParam
+
+logger = logging.getLogger(__name__)
+
+
+class NeutronConverterFlavors(StrEnum):
+    """Flavors (versions) supported by NeutronConverterPass."""
+
+    SDK_25_03 = "MCUXpresso SDK 25.03"
+    SDK_25_06 = "MCUXpresso SDK 25.06"
+    SDK_25_09 = "MCUXpresso SDK 25.09"
+
+
+class NeutronConverterTargets(StrEnum):
+    """Targets supported by NeutronConverter."""
+
+    IMXRT700 = "imxrt700"
+    IMX95 = "imx95"
+
+
+class NeutronConverterPassError(OliveError):
+    """Error raised by NeutronConverterPass."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
+def convert_unsafe(tflite_model: bytes, neutron_target: str, neutron_flavor: str, result_queue: Queue):
+    """Convert TFLite model with neutron converter.
+
+    This function is intended to run in separate process.
+    """
+    if neutron_flavor == NeutronConverterFlavors.SDK_25_03:
+        import neutron_converter_SDK_25_03.neutron_converter as neutron_converter  # noqa: PLC0415
+    elif neutron_flavor == NeutronConverterFlavors.SDK_25_06:
+        import neutron_converter_SDK_25_06.neutron_converter as neutron_converter  # noqa: PLC0415
+    elif neutron_flavor == NeutronConverterFlavors.SDK_25_09:
+        import neutron_converter_SDK_25_09.neutron_converter as neutron_converter  # noqa: PLC0415
+    else:
+        raise NeutronConverterPassError(f"Unsupported Neutron converter flavor: '{neutron_flavor}'.")
+
+    cctx = neutron_converter.CompilationContext()
+    cctx.targetOpts = neutron_converter.getNeutronTarget(neutron_target)
+
+    converted_model = neutron_converter.convertModel(list(tflite_model), cctx)
+    converted_model = bytes(converted_model)
+
+    result_queue.put(converted_model)
+
+
+class CrashCapturingRunner:
+
+    def run_with_crash_detection(self, target_function, tflite_model, neutron_flavor, neutron_target, result_queue):
+        """Run the target function using multiprocessing with parameters."""
+        # Create pipes for stdout/stderr redirection
+        stdout_read, stdout_write = os.pipe()
+        stderr_read, stderr_write = os.pipe()
+
+        def wrapper_function():
+            """Wrap target_function and redirect its output."""
+            # Redirect stdout and stderr to pipes
+            os.dup2(stdout_write, 1)
+            os.dup2(stderr_write, 2)
+
+            # Close the read ends in the child process
+            os.close(stdout_read)
+            os.close(stderr_read)
+
+            return target_function(tflite_model, neutron_target, neutron_flavor, result_queue)
+
+        # Neutron converter is executed in separate process for two reasons:
+        #  1. We are not able to import multiple neutron converter packages into single interpreter.
+        #     There is problem with already "registered" class e.g. 'CompileOptions'.
+        #  2. Neutron converter crashes whole interpreter in case of error during the conversion.
+        process = Process(target=wrapper_function)
+        process.start()
+
+        # Close write ends in parent process
+        os.close(stdout_write)
+        os.close(stderr_write)
+
+        # Monitor output in real-time
+        def monitor_fd(pipe_fd, stream_name):
+            try:
+                while True:
+                    # Wait for data from descriptor
+                    ready, _, _ = select.select([pipe_fd], [], [], 0.1)
+
+                    if ready:
+                        data = os.read(pipe_fd, 4096)
+                        if data and data != b"\n":
+                            decoded_data = data.decode("utf-8", errors="replace").split("\n")
+                            for line in decoded_data:
+                                logger.info(line)
+                        else:
+                            break
+                    elif not process.is_alive():
+                        # Process already finished
+                        break
+            except Exception as e:
+                message = f"Error monitoring '{stream_name}': {type(e)}"
+                logger.exception(message)
+
+        # Start stdout/stderr monitoring threads
+        stdout_thread = threading.Thread(target=monitor_fd, args=(stdout_read, "stdout"))
+        stderr_thread = threading.Thread(target=monitor_fd, args=(stderr_read, "stderr"))
+
+        stdout_thread.daemon = True
+        stderr_thread.daemon = True
+
+        try:
+            stdout_thread.start()
+            stderr_thread.start()
+
+            # Wait for neutron-converter to convert the model
+            process.join(timeout=300)
+            return_code = self.terminate_process_if_alive(process)
+
+            # Wait for monitoring threads to finish
+            stdout_thread.join(timeout=1)
+            stderr_thread.join(timeout=1)
+        finally:
+            # Close read ends in parent process
+            os.close(stdout_read)
+            os.close(stderr_read)
+
+        return return_code
+
+    # noinspection PyMethodMayBeStatic
+    def terminate_process_if_alive(self, process: Process) -> int:
+        if process.is_alive():
+            # Wait for conversion timeout -> process is still alive -> terminate
+            process.terminate()
+            process.join(timeout=5)
+
+            return_code = -15  # TERM signal
+        else:
+            return_code = process.exitcode
+        return return_code
+
+
+class NeutronConversion(Pass):
+
+    @classmethod
+    def _default_config(cls, accelerator_spec: AcceleratorSpec) -> Dict[str, PassConfigParam]:
+        return {
+            "target": PassConfigParam(
+                type_=NeutronConverterTargets,
+                required=True,
+                description=f"Target board, where converted model will be deployed. "
+                            f"Currently supported targets: [{', '.join(list(NeutronConverterTargets))}].",
+                # Mention only those targets we support.
+            ),
+            "flavor": PassConfigParam(
+                type_=NeutronConverterFlavors,
+                required=True,
+                description=f"Flavor (version) of Neutron converter used for the conversion. "
+                            f"Following flavors are currently supported: "
+                            f"[{', '.join(list(NeutronConverterFlavors))}].",
+            )
+        }
+
+    def _run_for_config(
+        self,
+        model: TFLiteModelHandler,
+        config: Type[BasePassConfig],
+        output_model_path: str,
+    ) -> TFLiteModelHandler:
+        if not isinstance(model, TFLiteModelHandler):
+            raise NotImplementedError(f"Unsupported model handler type: {type(model)}")
+
+        config = dict(config)
+        neutron_target = config["target"]
+        neutron_flavor = config["flavor"]
+
+        if neutron_target not in list(NeutronConverterTargets):
+            message = f"Unsupported neutron target: '{neutron_target}'."
+            raise NeutronConverterPassError(message)
+
+        # Read model as bytes.
+        with Path.open(Path(model.model_path), "rb") as mp:
+            tflite_model = mp.read()
+
+        # noinspection PyUnresolvedReferences
+        worker_queue = billiard.Manager().Queue()
+
+        return_code = CrashCapturingRunner().run_with_crash_detection(
+            convert_unsafe,
+            tflite_model,
+            neutron_flavor,
+            neutron_target,
+            worker_queue,
+        )
+
+        if return_code == 0:
+            logger.info("Neutron Conversion completed successfully!")
+        else:
+            message = f"Neutron Conversion failed with return code: {return_code}"
+            logger.error(message)
+
+        if worker_queue.empty():
+            raise NeutronConverterPassError("Neutron converter module terminated unexpectedly.")
+
+        converted_model = worker_queue.get()
+
+        output_model_path = Path(output_model_path)
+        output_model_path.mkdir(parents=True, exist_ok=True)
+        output_model_path = output_model_path / "neutron_model.tflite"
+
+        with open(output_model_path, "wb") as f:
+            f.write(converted_model)
+
+        return TFLiteModelHandler(output_model_path)
