@@ -113,7 +113,7 @@ def flatten_past_kv_inputs(past_key_values: List[Tuple[torch.Tensor, torch.Tenso
 
 
 def eval_wt2_ppl(model, device, execution_provider, tasks=("wikitext",), batch_size=128):
-    from neural_compressor.evaluation.lm_eval import evaluate, LMEvalParser  # noqa: PLC0415
+    from neural_compressor.evaluation.lm_eval import evaluate, LMEvalParser # noqa: PLC0415
 
     model_dir = Path(model.model_path).resolve().parent
     tokenizer = "h2oai/h2o-danube3-500m-chat"
@@ -127,7 +127,7 @@ def eval_wt2_ppl(model, device, execution_provider, tasks=("wikitext",), batch_s
             batch_size=batch_size,
             tasks=",".join(tasks),
             device="cpu",
-            verbosity="DEBUG"
+            verbosity="DEBUG",
         )
         results = evaluate(eval_args)
 
@@ -138,19 +138,17 @@ def eval_wt2_ppl(model, device, execution_provider, tasks=("wikitext",), batch_s
             batch_size=batch_size,
             tasks=",".join(tasks),
             device="cpu",
-            verbosity="DEBUG"
+            verbosity="DEBUG",
         )
         results = evaluate(eval_args)
 
     eval_acc = 0
     for task_name in tasks:
         if task_name == "wikitext":
-            print("Accuracy for %s is: %s" %
-                  (task_name, results["results"][task_name]["word_perplexity,none"]))
+            print("Accuracy for {} is: {}".format(task_name, results["results"][task_name]["word_perplexity,none"]))  # noqa: T201
             eval_acc += results["results"][task_name]["word_perplexity,none"]
         else:
-            print("Accuracy for %s is: %s" %
-                  (task_name, results["results"][task_name]["acc,none"]))
+            print("Accuracy for {} is: {}".format(task_name, results["results"][task_name]["acc,none"]))  # noqa: T201
             eval_acc += results["results"][task_name]["acc,none"]
 
     if len(tasks) != 0:

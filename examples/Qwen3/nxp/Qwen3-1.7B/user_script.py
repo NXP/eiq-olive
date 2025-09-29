@@ -13,6 +13,7 @@ from transformers import AutoConfig, AutoTokenizer
 
 from olive.constants import Framework
 from olive.data.registry import Registry
+from itertools import chain
 
 model_id = "Qwen/Qwen3-1.7B"
 config = AutoConfig.from_pretrained(model_id)
@@ -24,15 +25,16 @@ def tokenize_function(examples):
 
 
 # We hardcode the input names related to the KV cache for the KV dataloader
-input_names = sum([[f"past_key_values.{j}.key", f"past_key_values.{j}.value"] for j in range(config.num_hidden_layers)],
-                  [])
+input_names = list(chain.from_iterable(
+    [[f"past_key_values.{j}.key", f"past_key_values.{j}.value"] for j in range(config.num_hidden_layers)]
+))
+
 
 
 # Dataloader for INCQuantization, approach = static. In particular, we need to create and pass dummy past_key_values
 # for the onnx decoder.
 class KVDataloader:
-    def __init__(self, dataset="NeelNanda/pile-10k", pad_max=196,
-                 batch_size=1, n_batches=1, sub_folder="train"):
+    def __init__(self, dataset="NeelNanda/pile-10k", pad_max=196, batch_size=1, n_batches=1, sub_folder="train"):
         self.pad_max = pad_max
         self.batch_size = batch_size
         self.n_batches = n_batches
@@ -49,7 +51,6 @@ class KVDataloader:
         self.use_cache = len(self.key_value_input_names) > 0
 
     def collate_batch(self, batch):
-
         input_ids_padded = []
         attention_mask_padded = []
         last_ind = []
@@ -67,9 +68,7 @@ class KVDataloader:
 
     def __iter__(self):
         try:
-
             for j, ((input_ids, attention_mask), last_ind) in enumerate(self.dataloader):
-
                 if j >= self.n_batches:
                     return
 
@@ -105,7 +104,7 @@ def kv_dataloader(dataset, batch_size, n_batches, **kwargs):
 ## Custom evaluation function for wikitext PPL
 #
 def eval_wt2_ppl(model, device, execution_provider, tasks=("wikitext",), batch_size=128):
-    from neural_compressor.evaluation.lm_eval import evaluate, LMEvalParser  # noqa: PLC0415
+    from neural_compressor.evaluation.lm_eval import evaluate, LMEvalParser # noqa: PLC0415
 
     model_dir = Path(model.model_path).resolve().parent
     tokenizer = "Qwen/Qwen3-1.7B"
@@ -119,7 +118,7 @@ def eval_wt2_ppl(model, device, execution_provider, tasks=("wikitext",), batch_s
             batch_size=batch_size,
             tasks=",".join(tasks),
             device="cpu",
-            verbosity="DEBUG"
+            verbosity="DEBUG",
         )
         results = evaluate(eval_args)
 
@@ -130,19 +129,17 @@ def eval_wt2_ppl(model, device, execution_provider, tasks=("wikitext",), batch_s
             batch_size=batch_size,
             tasks=",".join(tasks),
             device="cpu",
-            verbosity="DEBUG"
+            verbosity="DEBUG",
         )
         results = evaluate(eval_args)
 
     eval_acc = 0
     for task_name in tasks:
         if task_name == "wikitext":
-            print("Accuracy for %s is: %s" %
-                  (task_name, results["results"][task_name]["word_perplexity,none"]))
+            print("Accuracy for {} is: {}".format(task_name, results["results"][task_name]["word_perplexity,none"]))  # noqa: T201
             eval_acc += results["results"][task_name]["word_perplexity,none"]
         else:
-            print("Accuracy for %s is: %s" %
-                  (task_name, results["results"][task_name]["acc,none"]))
+            print("Accuracy for {} is: {}".format(task_name, results["results"][task_name]["acc,none"]))  # noqa: T201
             eval_acc += results["results"][task_name]["acc,none"]
 
     if len(tasks) != 0:
