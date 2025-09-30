@@ -1,4 +1,6 @@
 neutron_converter_SDK_25_03
+neutron_converter_SDK_25_06
+neutron_converter_SDK_25_09
 nxp-ethos-u-vela
 eiq-onnx2tflite>=0.7.0
 truststore

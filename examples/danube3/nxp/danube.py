@@ -37,10 +37,7 @@ def get_args(raw_args):
         "--prompt",
         nargs="*",
         type=str,
-        default=[
-            "What is the capital of France?",
-            "Why is drinking water good?"
-        ],
+        default=["What is the capital of France?", "Why is drinking water good?"],
     )
     parser.add_argument(
         "--max_length",

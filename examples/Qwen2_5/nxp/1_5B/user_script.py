@@ -15,7 +15,7 @@ from olive.constants import Framework
 from olive.data.registry import Registry
 from itertools import chain
 
-model_id = "google/gemma-3-1b-it-qat-int4-unquantized"
+model_id = "Qwen/Qwen2.5-1.5B-Instruct"
 config = AutoConfig.from_pretrained(model_id)
 
 
@@ -104,7 +104,7 @@ def eval_wt2_ppl(model, device, execution_provider, tasks=("wikitext",), batch_s
     from neural_compressor.evaluation.lm_eval import evaluate, LMEvalParser # noqa: PLC0415
 
     model_dir = Path(model.model_path).resolve().parent
-    tokenizer = "google/gemma-3-1b-it-qat-int4-unquantized"
+    tokenizer = "Qwen/Qwen2.5-1.5B-Instruct"
 
     if model.framework == Framework.ONNX:
         output_config_file = model_dir / "config.json"

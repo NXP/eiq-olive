@@ -9,3 +9,4 @@ pyyaml
 torch
 torchmetrics>=1.0.0
 transformers
+billiard
