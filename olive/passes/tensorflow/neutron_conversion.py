@@ -4,6 +4,7 @@
 # Licensed under the MIT License.
 #
 
+import importlib
 import logging
 import os
 import select
@@ -31,6 +32,9 @@ class NeutronConverterFlavors(StrEnum):
     SDK_25_03 = "MCUXpresso SDK 25.03"
     SDK_25_06 = "MCUXpresso SDK 25.06"
     SDK_25_09 = "MCUXpresso SDK 25.09"
+    LF6_12_3_1_0_0 = "LF6.12.3_1.0.0"
+    LF6_12_20_2_0_0 = "LF6.12.20_2.0.0"
+    LF6_12_34_2_1_0 = "LF6.12.34_2.1.0"
 
 
 class NeutronConverterTargets(StrEnum):
@@ -47,19 +51,30 @@ class NeutronConverterPassError(OliveError):
         super().__init__(message)
 
 
+def load_neutron_converter(neutron_flavor):
+    """Import correct version of neutron converter or raise exception when unknown."""
+    flavor_mapping = {
+        NeutronConverterFlavors.SDK_25_03: "neutron_converter_SDK_25_03",
+        NeutronConverterFlavors.SDK_25_06: "neutron_converter_SDK_25_06",
+        NeutronConverterFlavors.SDK_25_09: "neutron_converter_SDK_25_09",
+        NeutronConverterFlavors.LF6_12_3_1_0_0: "neutron_converter_SDK_25_03",
+        NeutronConverterFlavors.LF6_12_20_2_0_0: "neutron_converter_SDK_25_06",
+        NeutronConverterFlavors.LF6_12_34_2_1_0: "neutron_converter_SDK_25_09",
+    }
+
+    module_name = flavor_mapping.get(neutron_flavor)
+    if module_name is None:
+        raise NeutronConverterPassError(f"Unsupported Neutron converter flavor: '{neutron_flavor}'.")
+
+    return importlib.import_module(f"{module_name}.neutron_converter")
+
+
 def convert_unsafe(tflite_model: bytes, neutron_target: str, neutron_flavor: str, result_queue: Queue):
     """Convert TFLite model with neutron converter.
 
     This function is intended to run in separate process.
     """
-    if neutron_flavor == NeutronConverterFlavors.SDK_25_03:
-        import neutron_converter_SDK_25_03.neutron_converter as neutron_converter  # noqa: PLC0415
-    elif neutron_flavor == NeutronConverterFlavors.SDK_25_06:
-        import neutron_converter_SDK_25_06.neutron_converter as neutron_converter  # noqa: PLC0415
-    elif neutron_flavor == NeutronConverterFlavors.SDK_25_09:
-        import neutron_converter_SDK_25_09.neutron_converter as neutron_converter  # noqa: PLC0415
-    else:
-        raise NeutronConverterPassError(f"Unsupported Neutron converter flavor: '{neutron_flavor}'.")
+    neutron_converter = load_neutron_converter(neutron_flavor)
 
     cctx = neutron_converter.CompilationContext()
     cctx.targetOpts = neutron_converter.getNeutronTarget(neutron_target)
