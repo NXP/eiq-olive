@@ -1,0 +1,27 @@
+{
+      "input_model": {
+          "type": "ONNXModel",
+          "model_path": "yolov8n.onnx"
+      },
+      "passes": {
+          "tflite_conversion": {
+              "type": "TFLiteConversion",
+              "config": {
+                  "non_negative_indices": false,
+                  "cast_int64_to_int32": false,
+                  "accept_resize_rounding_error": false,
+                  "ignore_opset_version": false,
+                  "allow_inputs_stripping": true,
+                  "keep_io_format": true,
+                  "skip_shape_inference": false,
+                  "qdq_aware_conversion": true,
+                  "symbolic_dimension_into_static": [],
+                  "set_input_shape": [],
+                  "dont_skip_nodes_with_known_outputs": false,
+                  "allow_select_ops": true
+              }
+          }
+      },
+      "cache_dir": "cache",
+      "output_dir": "outputs-tflite-convert"
+  }
