@@ -9,7 +9,6 @@ import logging
 import os
 import select
 import threading
-from enum import StrEnum
 from pathlib import Path
 from typing import Dict, Type
 
@@ -17,6 +16,7 @@ import billiard
 from billiard.context import Process
 from billiard.queues import Queue
 
+from olive.common.utils import StrEnumBase
 from olive.exception import OliveError
 from olive.hardware import AcceleratorSpec
 from olive.model.handler.tensorflow import TFLiteModelHandler
@@ -26,7 +26,7 @@ from olive.passes.pass_config import BasePassConfig, PassConfigParam
 logger = logging.getLogger(__name__)
 
 
-class NeutronConverterFlavors(StrEnum):
+class NeutronConverterFlavors(StrEnumBase):
     """Flavors (versions) supported by NeutronConverterPass."""
 
     SDK_25_03 = "MCUXpresso SDK 25.03"
@@ -37,7 +37,7 @@ class NeutronConverterFlavors(StrEnum):
     LF6_12_34_2_1_0 = "LF6.12.34_2.1.0"
 
 
-class NeutronConverterTargets(StrEnum):
+class NeutronConverterTargets(StrEnumBase):
     """Targets supported by NeutronConverter."""
 
     IMXRT700 = "imxrt700"
