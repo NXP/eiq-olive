@@ -9,12 +9,12 @@ other improvements aimed at streamlining model conversion and deployment to NXP'
 
 ## Added passes
 
-| Pass name                      | Implementation                                                  | Dependencies                                                                               | Input type | Output type | Params |
+| Pass name                      | Implementation                                                  | Dependencies                                                                               | Input type | Output type | Example |
 |--------------------------------|-----------------------------------------------------------------|--------------------------------------------------------------------------------------------|------------|-------------|-------------|
-| NeutronConversionSDK2503       | [Code](olive/passes/tensorflow/neutron_conversion_sdk_25_03.py) | [neutron-converter-sdk-25-03](https://eiq.nxp.com/repository/neutron-converter-sdk-25-03/) | TFLite     | TFLite      | [In Code](olive/passes/tensorflow/neutron_conversion_sdk_25_03.py#L23) |
-| ONNX2Quant                     | [Code](olive/passes/onnx/nxp_onnx2quant.py)                     | [eiq-onnx2tflite](https://eiq.nxp.com/repository/eiq-onnx2tflite/)                         | ONNX       | ONNX        | [In Code](olive/passes/onnx/nxp_onnx2quant.py#L30) |
-| TFLiteConversion (ONNX2TFLite) | [Code](olive/passes/tensorflow/conversion.py)                   | [eiq-onnx2tflite](https://eiq.nxp.com/repository/eiq-onnx2tflite/)                         | ONNX       | TFLite      | [In Code](olive/passes/tensorflow/conversion.py#L22) |
-| VelaConversion                 | [Code](olive/passes/tensorflow/vela_conversion.py)              | [ethos-u-vela](https://eiq.nxp.com/repository/nxp-ethos-u-vela/)                           | TFLite     | TFLite      | None   |
+| NeutronConversion              | [Code](olive/passes/tensorflow/neutron_conversion.py) | [neutron-converter-sdk-25-03](https://eiq.nxp.com/repository/neutron-converter-sdk-25-03/) <br/>[neutron-converter-sdk-25-06](https://eiq.nxp.com/repository/neutron-converter-sdk-25-06/)<br/>[neutron-converter-sdk-25-09](https://eiq.nxp.com/repository/neutron-converter-sdk-25-09/) | TFLite     | TFLite      | [Config](examples/yolo/neutron_conversion.json) |
+| ONNX2Quant                     | [Code](olive/passes/onnx/nxp_onnx2quant.py)                     | [eiq-onnx2tflite](https://eiq.nxp.com/repository/eiq-onnx2tflite/)                         | ONNX       | ONNX        | [Config](examples/yolo/onnx2quant.json) |
+| TFLiteConversion (ONNX2TFLite) | [Code](olive/passes/tensorflow/conversion.py)                   | [eiq-onnx2tflite](https://eiq.nxp.com/repository/eiq-onnx2tflite/)                         | ONNX       | TFLite      | [Config](examples/yolo/onnx2tflite.json) |
+| VelaConversion                 | [Code](olive/passes/tensorflow/vela_conversion.py)              | [ethos-u-vela](https://eiq.nxp.com/repository/nxp-ethos-u-vela/)                           | TFLite     | TFLite      | [Config](examples/yolo/vela_conversion.json)   |
 
 
 ---
