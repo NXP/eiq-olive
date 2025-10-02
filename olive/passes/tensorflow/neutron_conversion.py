@@ -41,7 +41,13 @@ class NeutronConverterTargets(StrEnumBase):
     """Targets supported by NeutronConverter."""
 
     IMXRT700 = "imxrt700"
+    IMX943 = "imx943"
     IMX95 = "imx95"
+    IMX952 = "imx952"
+    MCXN54X = "mcxn54x"
+    MCXN94X = "mcxn94x"
+    S32K5 = "s32k5"
+    S32N79 = "s32n79"
 
 
 class NeutronConverterPassError(OliveError):
