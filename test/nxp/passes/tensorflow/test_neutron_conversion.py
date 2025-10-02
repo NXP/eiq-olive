@@ -12,7 +12,7 @@ from pydantic.v1 import ValidationError
 
 from olive.model.handler.tensorflow import TFLiteModelHandler
 from olive.passes.olive_pass import create_pass_from_dict
-from olive.passes.tensorflow.neutron_conversion import NeutronConversion
+from olive.passes.tensorflow.neutron_conversion import NeutronConversion, NeutronConverterTargets
 
 _NXP_TEST_DIR = pathlib.Path(__file__).parent.parent.parent
 model_path = os.path.join(_NXP_TEST_DIR, "resources", "1.tflite")
@@ -42,7 +42,7 @@ def test_neutron_conversion_success(tmp_path, neutron_flavor):
     assert Path(neutron_model.model_path).exists()
 
 
-@pytest.mark.parametrize("target", ["imxrt700", "imx95"])
+@pytest.mark.parametrize("target", [t.value for t in NeutronConverterTargets])
 def test_neutron_conversion_sdk_25_09_success(tmp_path, target):
     """Test successful run of NeutronConversion pass for SDK 25.09."""
     pass_config = {"target": target, "flavor": "MCUXpresso SDK 25.09"}
