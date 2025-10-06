@@ -1,3 +1,8 @@
+#
+# Copyright 2025 NXP
+#
+# Licensed under the MIT License.
+#
 from ultralytics import YOLO
 import os
 
