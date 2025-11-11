@@ -10,7 +10,7 @@ import os
 import select
 import threading
 from pathlib import Path
-from typing import Dict, Type
+from typing import Any, Dict, Type
 
 import billiard
 from billiard.context import Process
@@ -75,15 +75,45 @@ def load_neutron_converter(neutron_flavor):
     return importlib.import_module(f"{module_name}.neutron_converter")
 
 
-def convert_unsafe(tflite_model: bytes, neutron_target: str, neutron_flavor: str, result_queue: Queue):
+def _set_conversion_options(obj: object, config: dict[str, Any]):
+    """Set conversion options from config dictionary."""
+    for key, value in config.items():
+        if hasattr(obj, key):
+            setattr(obj, key, value)
+        else:
+            message = f"This Neutron converter flavor does not support {key} option. Ignoring {key} option."
+            logger.warning(message)
+
+
+def convert_unsafe(tflite_model: bytes, model_path: str, config: dict[str, Any], result_queue: Queue):
     """Convert TFLite model with neutron converter.
 
     This function is intended to run in separate process.
     """
+    neutron_target = config["target"]
+    neutron_flavor = config["flavor"]
+
+    if neutron_target not in list(NeutronConverterTargets):
+        message = f"Unsupported neutron target: '{neutron_target}'."
+        raise NeutronConverterPassError(message)
+
     neutron_converter = load_neutron_converter(neutron_flavor)
 
     cctx = neutron_converter.CompilationContext()
     cctx.targetOpts = neutron_converter.getNeutronTarget(neutron_target)
+
+    compilation_opts = neutron_converter.CompilationOptions()
+    _set_conversion_options(compilation_opts, config)
+
+    # Set path to output model to compilation options as well,
+    # so the exported header files are in the same directory and with the same name as converted model
+    model_path = Path(model_path)
+    model_path.mkdir(parents=True, exist_ok=True)
+    model_path = model_path / "neutron_model.tflite"
+
+    compilation_opts.output = str(model_path)
+
+    cctx.compilationOpts = compilation_opts
 
     converted_model = neutron_converter.convertModel(list(tflite_model), cctx)
     converted_model = bytes(converted_model)
@@ -93,7 +123,7 @@ def convert_unsafe(tflite_model: bytes, neutron_target: str, neutron_flavor: str
 
 class CrashCapturingRunner:
 
-    def run_with_crash_detection(self, target_function, tflite_model, neutron_flavor, neutron_target, result_queue):
+    def run_with_crash_detection(self, target_function, tflite_model, model_path, config, result_queue):
         """Run the target function using multiprocessing with parameters."""
         # Create pipes for stdout/stderr redirection
         stdout_read, stdout_write = os.pipe()
@@ -109,7 +139,7 @@ class CrashCapturingRunner:
             os.close(stdout_read)
             os.close(stderr_read)
 
-            return target_function(tflite_model, neutron_target, neutron_flavor, result_queue)
+            return target_function(tflite_model, model_path, config, result_queue)
 
         # Neutron converter is executed in separate process for two reasons:
         #  1. We are not able to import multiple neutron converter packages into single interpreter.
@@ -191,16 +221,28 @@ class NeutronConversion(Pass):
                 type_=NeutronConverterTargets,
                 required=True,
                 description=f"Target board, where converted model will be deployed. "
-                            f"Currently supported targets: [{', '.join(list(NeutronConverterTargets))}].",
+                f"Currently supported targets: [{', '.join(list(NeutronConverterTargets))}].",
                 # Mention only those targets we support.
             ),
             "flavor": PassConfigParam(
                 type_=NeutronConverterFlavors,
                 required=True,
                 description=f"Flavor (version) of Neutron converter used for the conversion. "
-                            f"Following flavors are currently supported: "
-                            f"[{', '.join(list(NeutronConverterFlavors))}].",
-            )
+                f"Following flavors are currently supported: "
+                f"[{', '.join(list(NeutronConverterFlavors))}].",
+            ),
+            "dumpHeaderFileInput": PassConfigParam(
+                type_=bool,
+                required=False,
+                default=False,
+                description="Option to export the input TensorFlowLite model as a header file.",
+            ),
+            "dumpHeaderFileOutput": PassConfigParam(
+                type_=bool,
+                required=False,
+                default=False,
+                description="Option to export the output TensorFlowLite model as a header file.",
+            ),
         }
 
     def _run_for_config(
@@ -213,12 +255,6 @@ class NeutronConversion(Pass):
             raise NotImplementedError(f"Unsupported model handler type: {type(model)}")
 
         config = dict(config)
-        neutron_target = config["target"]
-        neutron_flavor = config["flavor"]
-
-        if neutron_target not in list(NeutronConverterTargets):
-            message = f"Unsupported neutron target: '{neutron_target}'."
-            raise NeutronConverterPassError(message)
 
         # Read model as bytes.
         with Path.open(Path(model.model_path), "rb") as mp:
@@ -230,8 +266,8 @@ class NeutronConversion(Pass):
         return_code = CrashCapturingRunner().run_with_crash_detection(
             convert_unsafe,
             tflite_model,
-            neutron_flavor,
-            neutron_target,
+            output_model_path,
+            config,
             worker_queue,
         )
 
@@ -253,4 +289,6 @@ class NeutronConversion(Pass):
         with open(output_model_path, "wb") as f:
             f.write(converted_model)
 
-        return TFLiteModelHandler(output_model_path)
+        additional_files = {"additional_files": [str(output_model_path.with_suffix(".h"))]}
+
+        return TFLiteModelHandler(output_model_path, model_attributes=additional_files)
