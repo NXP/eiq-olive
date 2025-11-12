@@ -80,7 +80,7 @@ def _set_conversion_options(obj: object, config: dict[str, Any]):
     for key, value in config.items():
         if hasattr(obj, key):
             setattr(obj, key, value)
-        else:
+        elif key not in ["target", "flavor"]:
             message = f"This Neutron converter flavor does not support {key} option. Ignoring {key} option."
             logger.warning(message)
 
@@ -289,6 +289,8 @@ class NeutronConversion(Pass):
         with open(output_model_path, "wb") as f:
             f.write(converted_model)
 
-        additional_files = {"additional_files": [str(output_model_path.with_suffix(".h"))]}
+        if config["dumpHeaderFileInput"] or config["dumpHeaderFileOutput"]:
+            additional_files = {"additional_files": [str(output_model_path.with_suffix(".h"))]}
+            return TFLiteModelHandler(output_model_path, model_attributes=additional_files)
 
-        return TFLiteModelHandler(output_model_path, model_attributes=additional_files)
+        return TFLiteModelHandler(output_model_path)
