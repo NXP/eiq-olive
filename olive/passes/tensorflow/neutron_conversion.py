@@ -290,15 +290,17 @@ class NeutronConversion(Pass):
         # We copy it to output folder together with other artifacts
         if config["dumpHeaderFileInput"]:
             header_file_path = Path(model.model_path).with_suffix(".h")
+            if header_file_path.exists():
+                header_file_artifact_path = output_model_path / "neutron_input_model_exported.h"
+                shutil.copy(header_file_path, header_file_artifact_path)
+                header_file_path.unlink()
 
-            header_file_artifact_path = output_model_path / "neutron_input_model_exported.h"
-            shutil.copy(header_file_path, header_file_artifact_path)
-            header_file_path.unlink()
-
-            additional_files.append(str(header_file_artifact_path))
+                additional_files.append(str(header_file_artifact_path))
 
         if config["dumpHeaderFileOutput"]:
-            additional_files.append(str(output_neutron_model_path.with_suffix(".h")))
+            header_file_path = output_neutron_model_path.with_suffix(".h")
+            if header_file_path.exists():
+                additional_files.append(str(header_file_path))
 
         if additional_files:
             return TFLiteModelHandler(
