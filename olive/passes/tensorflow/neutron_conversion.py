@@ -237,12 +237,22 @@ class NeutronConversion(Pass):
             "useSequencer": PassConfigParam(
                 type_=bool,
                 required=False,
-                description="Option to use the Neutron sequencer by generating Neutron bytecode. Note that this option cannot be used for Neutron-S targets (with subsystem).",
+                description="Option to use the Neutron sequencer by generating Neutron bytecode. "
+                "Note that this option cannot be used for Neutron-S targets (with subsystem).",
             ),
             "fetchConstantsToSRAM": PassConfigParam(
                 type_=bool,
                 required=False,
-                description="Fetch constants (weights) from an external memory (external for Neutron, such as FLASH memory) into SRAM. This feature is relevant only for Neutron-C targets. This feature allows running models which do not fit into SRAM by offloading their weights to an external memory. Note that the weights prefetching will be done in parallel with the compute: while computing layer N the system will prefetch in parallel the weights for layer N+1. This ensures that the latency is optimal. For models that are I/O bound the time for prefetch might exceed the time for compute and so some extra penalty might occur. Therefore this feature must used only if needed: if model already fits into SRAM then it should be placed entirely into SRAM and used from there without using this feature.",
+                description="Fetch constants (weights) from an external memory "
+                "(external for Neutron, such as FLASH memory) into SRAM. "
+                "This feature is relevant only for Neutron-C targets. "
+                "This feature allows running models which do not fit into SRAM by offloading their weights to an"
+                " external memory. Note that the weights prefetching will be done in parallel with the compute: "
+                "while computing layer N the system will prefetch in parallel the weights for layer N+1. "
+                "This ensures that the latency is optimal. For models that are I/O bound the time for prefetch"
+                " might exceed the time for compute and so some extra penalty might occur. "
+                "Therefore this feature must used only if needed: if model already fits into SRAM then it "
+                "should be placed entirely into SRAM and used from there without using this feature.",
             ),
         }
 
