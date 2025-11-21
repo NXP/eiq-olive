@@ -81,7 +81,7 @@ def _set_conversion_options(obj: object, config: dict[str, Any]):
     for key, value in config.items():
         if hasattr(obj, key):
             setattr(obj, key, value)
-        elif key not in ["target", "flavor"]:
+        elif key not in ["target", "flavor"] and value is not None:
             message = f"This Neutron converter flavor does not support {key} option. Ignoring {key} option."
             logger.warning(message)
 
@@ -227,14 +227,22 @@ class NeutronConversion(Pass):
             "dumpHeaderFileInput": PassConfigParam(
                 type_=bool,
                 required=False,
-                default=False,
                 description="Option to export the input TensorFlowLite model as a header file.",
             ),
             "dumpHeaderFileOutput": PassConfigParam(
                 type_=bool,
                 required=False,
-                default=False,
                 description="Option to export the output TensorFlowLite model as a header file.",
+            ),
+            "useSequencer": PassConfigParam(
+                type_=bool,
+                required=False,
+                description="Option to use the Neutron sequencer by generating Neutron bytecode. Note that this option cannot be used for Neutron-S targets (with subsystem).",
+            ),
+            "fetchConstantsToSRAM": PassConfigParam(
+                type_=bool,
+                required=False,
+                description="Fetch constants (weights) from an external memory (external for Neutron, such as FLASH memory) into SRAM. This feature is relevant only for Neutron-C targets. This feature allows running models which do not fit into SRAM by offloading their weights to an external memory. Note that the weights prefetching will be done in parallel with the compute: while computing layer N the system will prefetch in parallel the weights for layer N+1. This ensures that the latency is optimal. For models that are I/O bound the time for prefetch might exceed the time for compute and so some extra penalty might occur. Therefore this feature must used only if needed: if model already fits into SRAM then it should be placed entirely into SRAM and used from there without using this feature.",
             ),
         }
 
@@ -291,14 +299,17 @@ class NeutronConversion(Pass):
         if config["dumpHeaderFileInput"]:
             header_file_path = Path(model.model_path).with_suffix(".h")
 
-            header_file_artifact_path = output_model_path / "neutron_input_model_exported.h"
-            shutil.copy(header_file_path, header_file_artifact_path)
-            header_file_path.unlink()
+            if header_file_path.exists():
+                header_file_artifact_path = output_model_path / "neutron_input_model_exported.h"
+                shutil.copy(header_file_path, header_file_artifact_path)
+                header_file_path.unlink()
 
-            additional_files.append(str(header_file_artifact_path))
+                additional_files.append(str(header_file_artifact_path))
 
         if config["dumpHeaderFileOutput"]:
-            additional_files.append(str(output_neutron_model_path.with_suffix(".h")))
+            header_file_path = output_neutron_model_path.with_suffix(".h")
+            if header_file_path.exists():
+                additional_files.append(str(output_neutron_model_path.with_suffix(".h")))
 
         if additional_files:
             return TFLiteModelHandler(
