@@ -8,9 +8,10 @@ import importlib
 import logging
 import os
 import select
+import shutil
 import threading
 from pathlib import Path
-from typing import Dict, Type
+from typing import Any, Dict, Type
 
 import billiard
 from billiard.context import Process
@@ -75,15 +76,37 @@ def load_neutron_converter(neutron_flavor):
     return importlib.import_module(f"{module_name}.neutron_converter")
 
 
-def convert_unsafe(tflite_model: bytes, neutron_target: str, neutron_flavor: str, result_queue: Queue):
+def _set_conversion_options(obj: object, config: dict[str, Any]):
+    """Set conversion options from config dictionary."""
+    for key, value in config.items():
+        if hasattr(obj, key):
+            setattr(obj, key, value)
+        elif key not in ["target", "flavor"] and value is not None:
+            message = f"This Neutron converter flavor does not support {key} option. Ignoring {key} option."
+            logger.warning(message)
+
+
+def convert_unsafe(tflite_model: bytes, config: dict[str, Any], result_queue: Queue):
     """Convert TFLite model with neutron converter.
 
     This function is intended to run in separate process.
     """
+    neutron_target = config["target"]
+    neutron_flavor = config["flavor"]
+
+    if neutron_target not in list(NeutronConverterTargets):
+        message = f"Unsupported neutron target: '{neutron_target}'."
+        raise NeutronConverterPassError(message)
+
     neutron_converter = load_neutron_converter(neutron_flavor)
 
     cctx = neutron_converter.CompilationContext()
     cctx.targetOpts = neutron_converter.getNeutronTarget(neutron_target)
+
+    compilation_opts = neutron_converter.CompilationOptions()
+    _set_conversion_options(compilation_opts, config)
+
+    cctx.compilationOpts = compilation_opts
 
     converted_model = neutron_converter.convertModel(list(tflite_model), cctx)
     converted_model = bytes(converted_model)
@@ -93,7 +116,7 @@ def convert_unsafe(tflite_model: bytes, neutron_target: str, neutron_flavor: str
 
 class CrashCapturingRunner:
 
-    def run_with_crash_detection(self, target_function, tflite_model, neutron_flavor, neutron_target, result_queue):
+    def run_with_crash_detection(self, target_function, tflite_model, config, result_queue):
         """Run the target function using multiprocessing with parameters."""
         # Create pipes for stdout/stderr redirection
         stdout_read, stdout_write = os.pipe()
@@ -109,7 +132,7 @@ class CrashCapturingRunner:
             os.close(stdout_read)
             os.close(stderr_read)
 
-            return target_function(tflite_model, neutron_target, neutron_flavor, result_queue)
+            return target_function(tflite_model, config, result_queue)
 
         # Neutron converter is executed in separate process for two reasons:
         #  1. We are not able to import multiple neutron converter packages into single interpreter.
@@ -191,16 +214,46 @@ class NeutronConversion(Pass):
                 type_=NeutronConverterTargets,
                 required=True,
                 description=f"Target board, where converted model will be deployed. "
-                            f"Currently supported targets: [{', '.join(list(NeutronConverterTargets))}].",
+                f"Currently supported targets: [{', '.join(list(NeutronConverterTargets))}].",
                 # Mention only those targets we support.
             ),
             "flavor": PassConfigParam(
                 type_=NeutronConverterFlavors,
                 required=True,
                 description=f"Flavor (version) of Neutron converter used for the conversion. "
-                            f"Following flavors are currently supported: "
-                            f"[{', '.join(list(NeutronConverterFlavors))}].",
-            )
+                f"Following flavors are currently supported: "
+                f"[{', '.join(list(NeutronConverterFlavors))}].",
+            ),
+            "dumpHeaderFileInput": PassConfigParam(
+                type_=bool,
+                required=False,
+                description="Option to export the input TensorFlowLite model as a header file.",
+            ),
+            "dumpHeaderFileOutput": PassConfigParam(
+                type_=bool,
+                required=False,
+                description="Option to export the output TensorFlowLite model as a header file.",
+            ),
+            "useSequencer": PassConfigParam(
+                type_=bool,
+                required=False,
+                description="Option to use the Neutron sequencer by generating Neutron bytecode. "
+                "Note that this option cannot be used for Neutron-S targets (with subsystem).",
+            ),
+            "fetchConstantsToSRAM": PassConfigParam(
+                type_=bool,
+                required=False,
+                description="Fetch constants (weights) from an external memory "
+                "(external for Neutron, such as FLASH memory) into SRAM. "
+                "This feature is relevant only for Neutron-C targets. "
+                "This feature allows running models which do not fit into SRAM by offloading their weights to an"
+                " external memory. Note that the weights prefetching will be done in parallel with the compute: "
+                "while computing layer N the system will prefetch in parallel the weights for layer N+1. "
+                "This ensures that the latency is optimal. For models that are I/O bound the time for prefetch"
+                " might exceed the time for compute and so some extra penalty might occur. "
+                "Therefore this feature must used only if needed: if model already fits into SRAM then it "
+                "should be placed entirely into SRAM and used from there without using this feature.",
+            ),
         }
 
     def _run_for_config(
@@ -213,12 +266,14 @@ class NeutronConversion(Pass):
             raise NotImplementedError(f"Unsupported model handler type: {type(model)}")
 
         config = dict(config)
-        neutron_target = config["target"]
-        neutron_flavor = config["flavor"]
 
-        if neutron_target not in list(NeutronConverterTargets):
-            message = f"Unsupported neutron target: '{neutron_target}'."
-            raise NeutronConverterPassError(message)
+        output_model_path = Path(output_model_path)
+        output_model_path.mkdir(parents=True, exist_ok=True)
+        output_neutron_model_path = output_model_path / "neutron_model.tflite"
+
+        # This ensures input and output paths for dumped header files are set to these locations
+        config["input"] = str(model.model_path)
+        config["output"] = str(output_neutron_model_path)
 
         # Read model as bytes.
         with Path.open(Path(model.model_path), "rb") as mp:
@@ -230,8 +285,7 @@ class NeutronConversion(Pass):
         return_code = CrashCapturingRunner().run_with_crash_detection(
             convert_unsafe,
             tflite_model,
-            neutron_flavor,
-            neutron_target,
+            config,
             worker_queue,
         )
 
@@ -246,11 +300,28 @@ class NeutronConversion(Pass):
 
         converted_model = worker_queue.get()
 
-        output_model_path = Path(output_model_path)
-        output_model_path.mkdir(parents=True, exist_ok=True)
-        output_model_path = output_model_path / "neutron_model.tflite"
-
-        with open(output_model_path, "wb") as f:
+        with open(output_neutron_model_path, "wb") as f:
             f.write(converted_model)
 
-        return TFLiteModelHandler(output_model_path)
+        additional_files = []
+        # We cannot directly set where this file is saved. It is saved in the same folder as input model
+        # We copy it to output folder together with other artifacts
+        if config["dumpHeaderFileInput"]:
+            header_file_path = Path(model.model_path).with_suffix(".h")
+            if header_file_path.exists():
+                header_file_artifact_path = output_model_path / "neutron_input_model_exported.h"
+                shutil.copy(header_file_path, header_file_artifact_path)
+                header_file_path.unlink()
+
+                additional_files.append(str(header_file_artifact_path))
+
+        if config["dumpHeaderFileOutput"]:
+            header_file_path = output_neutron_model_path.with_suffix(".h")
+            if header_file_path.exists():
+                additional_files.append(str(header_file_path))
+
+        if additional_files:
+            return TFLiteModelHandler(
+                output_neutron_model_path, model_attributes={"additional_files": additional_files}
+            )
+        return TFLiteModelHandler(output_neutron_model_path)
