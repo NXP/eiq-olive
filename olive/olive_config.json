@@ -585,7 +585,12 @@
         "gpu": [ "onnxruntime-gpu" ],
         "inc": [ "neural-compressor" ],
         "lora": [ "accelerate>=0.30.0", "peft", "scipy" ],
-        "neutron_conversion": [ "neutron_converter_SDK_25_03", "neutron_converter_SDK_25_06", "neutron_converter_SDK_25_09" ],
+        "neutron_conversion": [
+            "neutron_converter_SDK_25_03",
+            "neutron_converter_SDK_25_06",
+            "neutron_converter_SDK_25_09",
+            "eiq_neutron_sdk"
+        ],
         "nvmo": [ "nvidia-modelopt", "onnx-graphsurgeon", "datasets>=2.14.4", "cppimport==22.8.2" ],
         "nxp-ethos-u-vela": [ "nxp-ethos-u-vela" ],
         "eiq-onnx2tflite": [ "eiq-onnx2tflite" ],

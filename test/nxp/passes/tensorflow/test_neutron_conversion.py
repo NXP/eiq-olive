@@ -34,9 +34,11 @@ def test_neutron_conversion_pass_no_config():
         "MCUXpresso SDK 25.03",
         "MCUXpresso SDK 25.06",
         "MCUXpresso SDK 25.09",
+        "MCUXpresso SDK 25.12",
         "LF6.12.3_1.0.0",
         "LF6.12.20_2.0.0",
         "LF6.12.34_2.1.0",
+        "LF6.12.49_2.2.0",
     ],
 )
 def test_neutron_conversion_success(tmp_path, neutron_flavor):
@@ -53,6 +55,17 @@ def test_neutron_conversion_success(tmp_path, neutron_flavor):
 def test_neutron_conversion_sdk_25_09_success(tmp_path, target):
     """Test successful run of NeutronConversion pass for SDK 25.09."""
     pass_config = {"target": target, "flavor": "MCUXpresso SDK 25.09"}
+    p = create_pass_from_dict(NeutronConversion, pass_config, disable_search=True)
+    output_folder = str(tmp_path)
+    neutron_model = p.run(TFLiteModelHandler(model_path), output_folder)
+
+    assert Path(neutron_model.model_path).exists()
+
+
+@pytest.mark.parametrize("target", [t.value for t in NeutronConverterTargets])
+def test_neutron_conversion_sdk_25_12_success(tmp_path, target):
+    """Test successful run of NeutronConversion pass for SDK 25.12."""
+    pass_config = {"target": target, "flavor": "MCUXpresso SDK 25.12"}
     p = create_pass_from_dict(NeutronConversion, pass_config, disable_search=True)
     output_folder = str(tmp_path)
     neutron_model = p.run(TFLiteModelHandler(model_path), output_folder)
