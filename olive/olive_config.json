@@ -589,7 +589,7 @@
             "neutron_converter_SDK_25_03",
             "neutron_converter_SDK_25_06",
             "neutron_converter_SDK_25_09",
-            "eiq_neutron_sdk"
+            "eiq_neutron_sdk==2.2.2"
         ],
         "nvmo": [ "nvidia-modelopt", "onnx-graphsurgeon", "datasets>=2.14.4", "cppimport==22.8.2" ],
         "nxp-ethos-u-vela": [ "nxp-ethos-u-vela" ],
