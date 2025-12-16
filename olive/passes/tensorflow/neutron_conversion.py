@@ -33,9 +33,11 @@ class NeutronConverterFlavors(StrEnumBase):
     SDK_25_03 = "MCUXpresso SDK 25.03"
     SDK_25_06 = "MCUXpresso SDK 25.06"
     SDK_25_09 = "MCUXpresso SDK 25.09"
+    SDK_25_12 = "MCUXpresso SDK 25.12"
     LF6_12_3_1_0_0 = "LF6.12.3_1.0.0"
     LF6_12_20_2_0_0 = "LF6.12.20_2.0.0"
     LF6_12_34_2_1_0 = "LF6.12.34_2.1.0"
+    LF6_12_49_2_2_0 = "LF6.12.49_2.2.0"
 
 
 class NeutronConverterTargets(StrEnumBase):
@@ -64,9 +66,11 @@ def load_neutron_converter(neutron_flavor):
         NeutronConverterFlavors.SDK_25_03: "neutron_converter_SDK_25_03",
         NeutronConverterFlavors.SDK_25_06: "neutron_converter_SDK_25_06",
         NeutronConverterFlavors.SDK_25_09: "neutron_converter_SDK_25_09",
+        NeutronConverterFlavors.SDK_25_12: "eiq_neutron_sdk",
         NeutronConverterFlavors.LF6_12_3_1_0_0: "neutron_converter_SDK_25_03",
         NeutronConverterFlavors.LF6_12_20_2_0_0: "neutron_converter_SDK_25_06",
         NeutronConverterFlavors.LF6_12_34_2_1_0: "neutron_converter_SDK_25_09",
+        NeutronConverterFlavors.LF6_12_49_2_2_0: "eiq_neutron_sdk",
     }
 
     module_name = flavor_mapping.get(neutron_flavor)
