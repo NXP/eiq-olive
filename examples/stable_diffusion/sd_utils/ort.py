@@ -16,7 +16,7 @@ from sd_utils import config as sd_config
 
 from olive.model import ONNXModelHandler
 
-# ruff: noqa: TID252, T201
+# ruff: noqa: T201
 
 
 def update_dml_config(config_dml: Dict):

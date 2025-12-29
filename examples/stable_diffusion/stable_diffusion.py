@@ -21,7 +21,7 @@ from olive.common.utils import set_tempdir
 from olive.workflows import run as olive_run
 
 # pylint: disable=redefined-outer-name
-# ruff: noqa: TID252, T201
+# ruff: noqa: T201
 
 
 def save_image(result, batch_size, provider, num_images, images_saved, image_callback=None):

@@ -113,7 +113,7 @@ def flatten_past_kv_inputs(past_key_values: List[Tuple[torch.Tensor, torch.Tenso
 
 
 def eval_wt2_ppl(model, device, execution_provider, tasks=("wikitext",), batch_size=128):
-    from neural_compressor.evaluation.lm_eval import evaluate, LMEvalParser # noqa: PLC0415
+    from neural_compressor.evaluation.lm_eval import evaluate, LMEvalParser  # noqa: PLC0415
 
     model_dir = Path(model.model_path).resolve().parent
     tokenizer = "h2oai/h2o-danube3-500m-chat"

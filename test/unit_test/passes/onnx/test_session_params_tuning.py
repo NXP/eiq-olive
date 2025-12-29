@@ -68,13 +68,13 @@ def test_ort_session_params_tuning_with_customized_configs(mock_run, config):
 
     # assert
     if "providers_list" not in config:
-        assert (
-            mock_run.call_args.args[1].providers_list == "CPUExecutionProvider"
-        ), "providers_list is not set correctly as ['CPUExecutionProvider'] by default when user does not specify it"
+        assert mock_run.call_args.args[1].providers_list == "CPUExecutionProvider", (
+            "providers_list is not set correctly as ['CPUExecutionProvider'] by default when user does not specify it"
+        )
     if "device" not in config:
-        assert (
-            mock_run.call_args.args[1].device == "cpu"
-        ), "device is not set correctly as cpu by default when user does not specify it"
+        assert mock_run.call_args.args[1].device == "cpu", (
+            "device is not set correctly as cpu by default when user does not specify it"
+        )
     for k, v in config.items():
         assert getattr(mock_run.call_args.args[1], k) == v, f"{k} is not set correctly as {v}"
 
@@ -145,9 +145,9 @@ def test_session_params_tuning_with_provider_options(
     assert "io_bind" in result.inference_settings
     assert acutal_eps == [execution_provider]
     if execution_provider == "CUDAExecutionProvider":
-        assert result.inference_settings["provider_options"][0][
-            "enable_cuda_graph"
-        ], "enable_cuda_graph should be overridden to True"
+        assert result.inference_settings["provider_options"][0]["enable_cuda_graph"], (
+            "enable_cuda_graph should be overridden to True"
+        )
         assert result.inference_settings["provider_options"][0]["arena_extend_strategy"] == "kNextPowerOfTwo"
     else:
         assert "enable_cuda_graph" not in result.inference_settings["provider_options"][0]

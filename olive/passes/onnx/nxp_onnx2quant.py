@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 
 
 class ONNX2Quant(Pass):
-
     @classmethod
     def _default_config(cls, accelerator_spec: AcceleratorSpec) -> Dict[str, PassConfigParam]:
         return {
