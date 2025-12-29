@@ -119,7 +119,6 @@ def convert_unsafe(tflite_model: bytes, config: dict[str, Any], result_queue: Qu
 
 
 class CrashCapturingRunner:
-
     def run_with_crash_detection(self, target_function, tflite_model, config, result_queue):
         """Run the target function using multiprocessing with parameters."""
         # Create pipes for stdout/stderr redirection
@@ -210,7 +209,6 @@ class CrashCapturingRunner:
 
 
 class NeutronConversion(Pass):
-
     @classmethod
     def _default_config(cls, accelerator_spec: AcceleratorSpec) -> Dict[str, PassConfigParam]:
         return {

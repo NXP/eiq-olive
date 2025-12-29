@@ -25,10 +25,11 @@ def tokenize_function(examples):
 
 
 # We hardcode the input names related to the KV cache for the KV dataloader
-input_names = list(chain.from_iterable(
-    [[f"past_key_values.{j}.key", f"past_key_values.{j}.value"] for j in range(config.num_hidden_layers)]
-))
-
+input_names = list(
+    chain.from_iterable(
+        [[f"past_key_values.{j}.key", f"past_key_values.{j}.value"] for j in range(config.num_hidden_layers)]
+    )
+)
 
 
 # Dataloader for INCQuantization, approach = static. In particular, we need to create and pass dummy past_key_values
@@ -104,7 +105,7 @@ def kv_dataloader(dataset, batch_size, n_batches, **kwargs):
 ## Custom evaluation function for wikitext PPL
 #
 def eval_wt2_ppl(model, device, execution_provider, tasks=("wikitext",), batch_size=128):
-    from neural_compressor.evaluation.lm_eval import evaluate, LMEvalParser # noqa: PLC0415
+    from neural_compressor.evaluation.lm_eval import evaluate, LMEvalParser  # noqa: PLC0415
 
     model_dir = Path(model.model_path).resolve().parent
     tokenizer = "Qwen/Qwen3-1.7B"

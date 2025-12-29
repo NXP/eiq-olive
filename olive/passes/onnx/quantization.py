@@ -776,7 +776,7 @@ class OnnxMatMul4Quantizer(Pass):
                 GPTQWeightOnlyQuantConfig,
                 HQQWeightOnlyQuantConfig,
                 RTNWeightOnlyQuantConfig,
-            )  # noqa: PLC0415
+            )
         else:
             from onnxruntime.quantization.matmul_nbits_quantizer import (  # noqa: PLC0415
                 DefaultWeightOnlyQuantConfig,

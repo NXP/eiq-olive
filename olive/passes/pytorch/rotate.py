@@ -68,7 +68,7 @@ class RotateBase(Pass):
         rotate_mode: str,
         seed: int,
         training_args: Optional[BaseHFTrainingArguments] = None,
-        rotation_file_path = None,
+        rotation_file_path=None,
     ):
         """Create a new model with rotate modules.
 
@@ -110,8 +110,13 @@ class RotateBase(Pass):
         torch.manual_seed(seed)
         rotation_params = []
         R1 = torch.nn.Parameter(
-            self.get_orthogonal_matrix(model_wrapper.hidden_size, rotate_mode, model_wrapper.model.device,
-                                       rotation_file_path=rotation_file_path, matrix_name = "R1")
+            self.get_orthogonal_matrix(
+                model_wrapper.hidden_size,
+                rotate_mode,
+                model_wrapper.model.device,
+                rotation_file_path=rotation_file_path,
+                matrix_name="R1",
+            )
         )
         rotation_params.append(R1)
 
@@ -127,7 +132,7 @@ class RotateBase(Pass):
         model_wrapper.maybe_unpack_qkv()
 
         # rotate the hidden layers
-        for j,layer_wrapper in enumerate(model_wrapper.get_layer_wrappers()):
+        for j, layer_wrapper in enumerate(model_wrapper.get_layer_wrappers()):
             R2 = None
             for linear_idx, (linear, linear_name) in enumerate(zip(*layer_wrapper.get_attention_inputs())):
                 # R1^-1 @ Wq, R1^-1 @ Wk, R1^-1 @ Wv @ R2
@@ -136,9 +141,13 @@ class RotateBase(Pass):
                     # rotated headwise and when it is not, so we skip it for now
                     # not really an issue since bias is not present in most models
                     R2 = torch.nn.Parameter(
-                        self.get_orthogonal_matrix(model_wrapper.head_dim, rotate_mode, model_wrapper.model.device,
-                                                   rotation_file_path=rotation_file_path,
-                                                   matrix_name=f"model.layers.{j}.self_attn.R2")
+                        self.get_orthogonal_matrix(
+                            model_wrapper.head_dim,
+                            rotate_mode,
+                            model_wrapper.model.device,
+                            rotation_file_path=rotation_file_path,
+                            matrix_name=f"model.layers.{j}.self_attn.R2",
+                        )
                     )
                     rotation_params.append(R2)
                 set_attr(
@@ -217,8 +226,9 @@ class RotateBase(Pass):
         cls.fuse_ln_linear(model_wrapper.get_pre_head_layernorm(False), [model_wrapper.get_lm_head(False)])
 
     @staticmethod
-    def get_orthogonal_matrix(size: int, mode: str, device: torch.device,
-                              rotation_file_path=None, matrix_name=None) -> torch.Tensor:
+    def get_orthogonal_matrix(
+        size: int, mode: str, device: torch.device, rotation_file_path=None, matrix_name=None
+    ) -> torch.Tensor:
         """Get an orthogonal matrix of the specified size.
 
         Supported modes:
@@ -263,8 +273,9 @@ class QuaRot(RotateBase):
     def _run_for_config(
         self, model: HfModelHandler, config: Type[BasePassConfig], output_model_path: str
     ) -> HfModelHandler:
-        model_wrapper, _, save_replacements = self.rotate_model(model, config.rotate_mode, config.seed,
-                                                                rotation_file_path=config.rotation_file_path)
+        model_wrapper, _, save_replacements = self.rotate_model(
+            model, config.rotate_mode, config.seed, rotation_file_path=config.rotation_file_path
+        )
 
         # save the model
         model_wrapper.save_model(output_model_path, replacements=save_replacements)

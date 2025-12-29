@@ -19,7 +19,6 @@ from olive.passes.onnx.nxp_onnx2quant import ONNX2Quant
 
 
 class RandomCalibrationDataset:
-
     def __init__(self, shapes, input_names, path="tmp_calibration_dataset", np_type=np.float32, items_count=5):
         self.path = path
         self.shapes = shapes
@@ -28,7 +27,6 @@ class RandomCalibrationDataset:
         self.input_names = input_names
 
     def __enter__(self):
-
         Path.mkdir(self.path)
 
         for input_name, shape in zip(self.input_names, self.shapes):
@@ -124,18 +122,14 @@ def test_onnx2quant_multiple_inputs_model(tmp_path):
     assert Path(onnx_model.model_path).exists()
 
 
-@pytest.mark.parametrize("input_names", [
-    ["hello,-.sdf$ßđˇ/", "y"],
-    ["x", "."],
-    ["", "abc"],
-    ["111", ".."],
-    ["x\t1", "y2"],
-    ["x 1", "y\n2"]
-])
+@pytest.mark.parametrize(
+    "input_names", [["hello,-.sdf$ßđˇ/", "y"], ["x", "."], ["", "abc"], ["111", ".."], ["x\t1", "y2"], ["x 1", "y\n2"]]
+)
 def test_onnx2quant_bad_input_model_name(tmp_path, input_names):
     """Test that pass, where onnx model has invalid input names raises an error."""
-    model_path = create_onnx_model_with_multiple_inputs(tmp_path, input_name1=input_names[0],
-                                                        input_name2=input_names[1])
+    model_path = create_onnx_model_with_multiple_inputs(
+        tmp_path, input_name1=input_names[0], input_name2=input_names[1]
+    )
     input_model = get_onnx_model_config(model_path).create_model()
     config = {"calibration_dataset": "tmp_calibration_dataset", "allow_opset_10_and_lower": True}
     p = create_pass_from_dict(ONNX2Quant, config, disable_search=True)

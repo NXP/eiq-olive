@@ -40,7 +40,6 @@ class ORTGenerator:
         self.tokenizer = None
 
     def get_initial_inputs_and_outputs(self, encodings_dict):
-
         input_ids = torch.tensor(encodings_dict["input_ids"], device=self.device, dtype=torch.int32)
         attention_mask = torch.tensor(encodings_dict["attention_mask"], device=self.device, dtype=torch.int32)
         step = torch.tensor([0], device=self.device, dtype=torch.int64)
@@ -299,7 +298,7 @@ def genai_run(prompts, model_path, max_length=200):
     output_token_count = 0
 
     for i, prompt in enumerate(prompts):
-        print(f"Prompt #{i+1:02d}: {prompt}")
+        print(f"Prompt #{i + 1:02d}: {prompt}")
         print(tokenizer.decode(generator.get_sequence(i)))
 
     output_token_count = sum(len(generator.get_sequence(i)) for i in range(len(prompts)))

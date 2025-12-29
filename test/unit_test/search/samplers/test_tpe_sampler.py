@@ -8,8 +8,6 @@ from olive.search.samplers.tpe_sampler import TPESampler
 from olive.search.search_parameter import Categorical, Conditional
 from olive.search.search_space import SearchSpace
 
-# ruff: noqa: PD011
-
 
 class TestTPESampler:
     def test_iteration(self):

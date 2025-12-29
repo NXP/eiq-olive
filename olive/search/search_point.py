@@ -8,8 +8,6 @@ from typing import Any, Dict, Tuple
 
 from olive.search.search_parameter import SpecialParamValue
 
-# ruff: noqa: PD011
-
 
 @dataclass
 class SearchPoint:

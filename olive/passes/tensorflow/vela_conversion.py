@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 
 class VelaConversion(Pass):
-
     @classmethod
     def _default_config(cls, accelerator_spec: AcceleratorSpec) -> Dict[str, PassConfigParam]:
         return {}
@@ -29,7 +28,6 @@ class VelaConversion(Pass):
         config: Type[BasePassConfig],
         output_model_path: str,
     ) -> TFLiteModelHandler:
-
         if not isinstance(model, TFLiteModelHandler):
             raise NotImplementedError(f"Unsupported model handler type: {type(model)}")
 

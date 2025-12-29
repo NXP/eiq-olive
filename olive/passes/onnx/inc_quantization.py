@@ -507,9 +507,7 @@ class IncQuantization(Pass):
         to_delete += list(get_external_data_config().keys())
         run_config = exclude_keys(run_config, to_delete)
 
-        run_config["op_type_dict"] = (
-            run_config["op_type_dict"] or {".*": {"weight": weight_only_config}}
-        )
+        run_config["op_type_dict"] = run_config["op_type_dict"] or {".*": {"weight": weight_only_config}}
 
         ptq_config = PostTrainingQuantConfig(
             **run_config,
